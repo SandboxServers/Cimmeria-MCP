@@ -1,273 +1,303 @@
 using System.Text.Json;
 using Azure;
 using Azure.AI.OpenAI;
-using Azure.Search.Documents;
-using Azure.Search.Documents.Models;
+using Microsoft.Azure.Cosmos;
 using OpenAI.Embeddings;
 
 namespace CimmeriaMcp.Functions.Services;
 
 public class CimmeriaSearchService
 {
-    private const string IndexName = "cimmeria-code";
+    private const string DatabaseName = "cimmeria";
+    private const string ContainerName = "code-chunks";
     private const string EmbeddingModel = "text-embedding-3-small";
 
-    private readonly SearchClient _searchClient;
+    private readonly Container _container;
     private readonly EmbeddingClient _embeddingClient;
+    private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
     public CimmeriaSearchService()
     {
-        var searchEndpoint = Environment.GetEnvironmentVariable("SEARCH_ENDPOINT")
-            ?? throw new InvalidOperationException("SEARCH_ENDPOINT is not configured.");
-        var searchKey = Environment.GetEnvironmentVariable("SEARCH_KEY")
-            ?? throw new InvalidOperationException("SEARCH_KEY is not configured.");
+        var cosmosEndpoint = Environment.GetEnvironmentVariable("COSMOS_ENDPOINT")
+            ?? throw new InvalidOperationException("COSMOS_ENDPOINT is not configured.");
+        var cosmosKey = Environment.GetEnvironmentVariable("COSMOS_KEY")
+            ?? throw new InvalidOperationException("COSMOS_KEY is not configured.");
         var openAiEndpoint = Environment.GetEnvironmentVariable("OPENAI_ENDPOINT")
             ?? throw new InvalidOperationException("OPENAI_ENDPOINT is not configured.");
         var openAiKey = Environment.GetEnvironmentVariable("OPENAI_KEY")
             ?? throw new InvalidOperationException("OPENAI_KEY is not configured.");
 
-        _searchClient = new SearchClient(
-            new Uri(searchEndpoint),
-            IndexName,
-            new AzureKeyCredential(searchKey));
+        var cosmosClient = new CosmosClient(cosmosEndpoint, cosmosKey, new CosmosClientOptions
+        {
+            SerializerOptions = new CosmosSerializationOptions
+            {
+                PropertyNamingPolicy = CosmosPropertyNamingPolicy.CamelCase
+            }
+        });
+        _container = cosmosClient.GetContainer(DatabaseName, ContainerName);
 
         var azureOpenAiClient = new AzureOpenAIClient(
             new Uri(openAiEndpoint),
             new AzureKeyCredential(openAiKey));
-
         _embeddingClient = azureOpenAiClient.GetEmbeddingClient(EmbeddingModel);
     }
 
-    public async Task<ReadOnlyMemory<float>> GetEmbeddingAsync(string text)
+    private async Task<float[]> GetEmbeddingAsync(string text)
     {
-        var response = await _embeddingClient.GenerateEmbeddingAsync(text);
-        return response.Value.ToFloats();
+        var options = new EmbeddingGenerationOptions { Dimensions = 505 };
+        var response = await _embeddingClient.GenerateEmbeddingAsync(text, options);
+        return response.Value.ToFloats().ToArray();
     }
 
-    public async Task<string> SearchAsync(string query, int topK = 8, string? fileType = null)
+    public async Task<string> SearchAsync(string query, int topK = 8, string? fileType = null, string? source = null)
     {
         var embedding = await GetEmbeddingAsync(query);
 
-        var vectorQuery = new VectorizedQuery(embedding)
-        {
-            KNearestNeighborsCount = topK,
-            Fields = { "embedding" }
-        };
-
-        var options = new SearchOptions
-        {
-            Size = topK,
-            VectorSearch = new() { Queries = { vectorQuery } },
-            Select = { "file_path", "file_type", "content", "chunk_index" },
-            SearchMode = SearchMode.All
-        };
-
+        var filters = new List<string>();
         if (!string.IsNullOrEmpty(fileType))
-        {
-            options.Filter = $"file_type eq '{fileType}'";
-        }
+            filters.Add($"c.file_type = '{fileType}'");
+        if (!string.IsNullOrEmpty(source))
+            filters.Add($"c.source_project = '{source}'");
 
-        // Hybrid search: text query + vector
-        var results = await _searchClient.SearchAsync<SearchDocument>(query, options);
+        var whereClause = filters.Count > 0 ? "WHERE " + string.Join(" AND ", filters) : "";
+
+        var sql = $"SELECT TOP {topK} c.file_path, c.file_type, c.content, c.chunk_index, c.source_project, " +
+                  $"VectorDistance(c.embedding, @embedding) AS distance " +
+                  $"FROM c {whereClause} " +
+                  $"ORDER BY VectorDistance(c.embedding, @embedding)";
+
+        var queryDef = new QueryDefinition(sql)
+            .WithParameter("@embedding", embedding);
 
         var items = new List<object>();
-        await foreach (var result in results.Value.GetResultsAsync())
+        using var iterator = _container.GetItemQueryIterator<dynamic>(queryDef);
+        while (iterator.HasMoreResults)
         {
-            items.Add(new
+            var response = await iterator.ReadNextAsync();
+            foreach (var item in response)
             {
-                file_path = result.Document.GetString("file_path"),
-                file_type = result.Document.GetString("file_type"),
-                content = result.Document.GetString("content"),
-                chunk_index = result.Document.GetInt32("chunk_index"),
-                score = result.Score
-            });
-        }
-
-        return JsonSerializer.Serialize(new { results = items, count = items.Count },
-            new JsonSerializerOptions { WriteIndented = true });
-    }
-
-    public async Task<string> ListFilesAsync(string? fileType = null)
-    {
-        var options = new SearchOptions
-        {
-            Size = 0,
-            Facets = { "file_path,count:1000" }
-        };
-
-        if (!string.IsNullOrEmpty(fileType))
-        {
-            options.Filter = $"file_type eq '{fileType}'";
-        }
-
-        var results = await _searchClient.SearchAsync<SearchDocument>("*", options);
-
-        var filePaths = new SortedSet<string>();
-        await foreach (var result in results.Value.GetResultsAsync())
-        {
-            if (result.Document.TryGetValue("file_path", out var path))
-            {
-                filePaths.Add(path.ToString()!);
+                items.Add(new
+                {
+                    file_path = (string)item.file_path,
+                    file_type = (string)item.file_type,
+                    content = (string)item.content,
+                    chunk_index = (int)item.chunk_index,
+                    source_project = (string)item.source_project,
+                    distance = (double)item.distance
+                });
             }
         }
 
-        return JsonSerializer.Serialize(new { files = filePaths, count = filePaths.Count },
-            new JsonSerializerOptions { WriteIndented = true });
+        return JsonSerializer.Serialize(new { results = items, count = items.Count }, JsonOptions);
     }
 
-    public async Task<string> GetFileContentAsync(string filePath)
+    public async Task<string> ListFilesAsync(string? fileType = null, string? source = null)
     {
-        var options = new SearchOptions
+        var filters = new List<string>();
+        if (!string.IsNullOrEmpty(fileType))
+            filters.Add($"c.file_type = '{fileType}'");
+        if (!string.IsNullOrEmpty(source))
+            filters.Add($"c.source_project = '{source}'");
+
+        var whereClause = filters.Count > 0 ? "WHERE " + string.Join(" AND ", filters) : "";
+        var sql = $"SELECT DISTINCT VALUE c.file_path FROM c {whereClause} ORDER BY c.file_path";
+
+        var filePaths = new List<string>();
+        using var iterator = _container.GetItemQueryIterator<string>(new QueryDefinition(sql));
+        while (iterator.HasMoreResults)
         {
-            Filter = $"file_path eq '{filePath}'",
-            Size = 100,
-            OrderBy = { "chunk_index asc" },
-            Select = { "file_path", "file_type", "content", "chunk_index" }
-        };
+            var response = await iterator.ReadNextAsync();
+            filePaths.AddRange(response);
+        }
 
-        var results = await _searchClient.SearchAsync<SearchDocument>("*", options);
+        return JsonSerializer.Serialize(new { files = filePaths, count = filePaths.Count }, JsonOptions);
+    }
 
-        var chunks = new List<object>();
+    public async Task<string> GetFileContentAsync(string filePath, string? source = null)
+    {
+        var filters = new List<string> { "c.file_path = @filePath" };
+        if (!string.IsNullOrEmpty(source))
+            filters.Add($"c.source_project = '{source}'");
+
+        var whereClause = "WHERE " + string.Join(" AND ", filters);
+        var sql = $"SELECT c.file_path, c.file_type, c.content, c.chunk_index, c.source_project " +
+                  $"FROM c {whereClause} ORDER BY c.chunk_index";
+
+        var queryDef = new QueryDefinition(sql)
+            .WithParameter("@filePath", filePath);
+
         var contentParts = new List<string>();
+        var fileType = "";
+        var sourceProject = "";
 
-        await foreach (var result in results.Value.GetResultsAsync())
+        using var iterator = _container.GetItemQueryIterator<dynamic>(queryDef);
+        while (iterator.HasMoreResults)
         {
-            var content = result.Document.GetString("content");
-            contentParts.Add(content);
-            chunks.Add(new
+            var response = await iterator.ReadNextAsync();
+            foreach (var item in response)
             {
-                chunk_index = result.Document.GetInt32("chunk_index"),
-                content
-            });
+                contentParts.Add((string)item.content);
+                fileType = (string)item.file_type;
+                sourceProject = (string)item.source_project;
+            }
         }
 
-        if (chunks.Count == 0)
-        {
+        if (contentParts.Count == 0)
             return JsonSerializer.Serialize(new { error = $"File not found: {filePath}" });
-        }
 
         return JsonSerializer.Serialize(new
         {
             file_path = filePath,
-            total_chunks = chunks.Count,
+            file_type = fileType,
+            source_project = sourceProject,
+            total_chunks = contentParts.Count,
             full_content = string.Join("\n", contentParts)
-        }, new JsonSerializerOptions { WriteIndented = true });
+        }, JsonOptions);
     }
 
-    public async Task<string> FindSimilarCodeAsync(string codeSnippet, int topK = 5)
+    public async Task<string> FindSimilarCodeAsync(string codeSnippet, int topK = 5, string? source = null)
     {
         var embedding = await GetEmbeddingAsync(codeSnippet);
 
-        var vectorQuery = new VectorizedQuery(embedding)
-        {
-            KNearestNeighborsCount = topK,
-            Fields = { "embedding" }
-        };
+        var whereClause = !string.IsNullOrEmpty(source) ? $"WHERE c.source_project = '{source}'" : "";
 
-        var options = new SearchOptions
-        {
-            Size = topK,
-            VectorSearch = new() { Queries = { vectorQuery } },
-            Select = { "file_path", "file_type", "content", "chunk_index" }
-        };
+        var sql = $"SELECT TOP {topK} c.file_path, c.file_type, c.content, c.chunk_index, c.source_project, " +
+                  $"VectorDistance(c.embedding, @embedding) AS distance " +
+                  $"FROM c {whereClause} " +
+                  $"ORDER BY VectorDistance(c.embedding, @embedding)";
 
-        var results = await _searchClient.SearchAsync<SearchDocument>(null, options);
+        var queryDef = new QueryDefinition(sql)
+            .WithParameter("@embedding", embedding);
 
         var items = new List<object>();
-        await foreach (var result in results.Value.GetResultsAsync())
+        using var iterator = _container.GetItemQueryIterator<dynamic>(queryDef);
+        while (iterator.HasMoreResults)
         {
-            items.Add(new
+            var response = await iterator.ReadNextAsync();
+            foreach (var item in response)
             {
-                file_path = result.Document.GetString("file_path"),
-                file_type = result.Document.GetString("file_type"),
-                content = result.Document.GetString("content"),
-                chunk_index = result.Document.GetInt32("chunk_index"),
-                score = result.Score
-            });
-        }
-
-        return JsonSerializer.Serialize(new { similar = items, count = items.Count },
-            new JsonSerializerOptions { WriteIndented = true });
-    }
-
-    public async Task<string> GetProjectOverviewAsync()
-    {
-        var options = new SearchOptions
-        {
-            Size = 0,
-            Facets = { "file_type,count:100", "file_path,count:1000" },
-            IncludeTotalCount = true
-        };
-
-        var results = await _searchClient.SearchAsync<SearchDocument>("*", options);
-
-        var fileTypes = new Dictionary<string, long>();
-        if (results.Value.Facets.TryGetValue("file_type", out var typeFacets))
-        {
-            foreach (var facet in typeFacets)
-            {
-                fileTypes[facet.Value.ToString()!] = facet.Count ?? 0;
+                items.Add(new
+                {
+                    file_path = (string)item.file_path,
+                    file_type = (string)item.file_type,
+                    content = (string)item.content,
+                    chunk_index = (int)item.chunk_index,
+                    source_project = (string)item.source_project,
+                    distance = (double)item.distance
+                });
             }
         }
 
-        var directories = new SortedSet<string>();
-        if (results.Value.Facets.TryGetValue("file_path", out var pathFacets))
+        return JsonSerializer.Serialize(new { similar = items, count = items.Count }, JsonOptions);
+    }
+
+    public async Task<string> GetProjectOverviewAsync(string? source = null)
+    {
+        var whereClause = !string.IsNullOrEmpty(source) ? $"WHERE c.source_project = '{source}'" : "";
+
+        // Total chunks
+        var countSql = $"SELECT VALUE COUNT(1) FROM c {whereClause}";
+        long totalChunks = 0;
+        using (var iter = _container.GetItemQueryIterator<long>(new QueryDefinition(countSql)))
         {
-            foreach (var facet in pathFacets)
+            while (iter.HasMoreResults)
             {
-                var path = facet.Value.ToString()!;
-                var dir = Path.GetDirectoryName(path)?.Replace('\\', '/');
-                if (!string.IsNullOrEmpty(dir))
+                var resp = await iter.ReadNextAsync();
+                foreach (var count in resp)
+                    totalChunks += count;
+            }
+        }
+
+        // File type counts (count distinct files per type)
+        var typeSql = $"SELECT c.file_type, COUNT(1) AS chunk_count FROM c {whereClause} GROUP BY c.file_type";
+        var fileTypes = new Dictionary<string, long>();
+        using (var iter = _container.GetItemQueryIterator<dynamic>(new QueryDefinition(typeSql)))
+        {
+            while (iter.HasMoreResults)
+            {
+                var resp = await iter.ReadNextAsync();
+                foreach (var item in resp)
+                    fileTypes[(string)item.file_type] = (long)item.chunk_count;
+            }
+        }
+
+        // Distinct directories
+        var pathSql = $"SELECT DISTINCT VALUE c.file_path FROM c {whereClause}";
+        var directories = new SortedSet<string>();
+        using (var iter = _container.GetItemQueryIterator<string>(new QueryDefinition(pathSql)))
+        {
+            while (iter.HasMoreResults)
+            {
+                var resp = await iter.ReadNextAsync();
+                foreach (var path in resp)
                 {
-                    directories.Add(dir);
+                    var dir = Path.GetDirectoryName(path)?.Replace('\\', '/');
+                    if (!string.IsNullOrEmpty(dir))
+                        directories.Add(dir);
                 }
+            }
+        }
+
+        // Source projects
+        var sourcesSql = "SELECT DISTINCT VALUE c.source_project FROM c";
+        var sources = new List<string>();
+        using (var iter = _container.GetItemQueryIterator<string>(new QueryDefinition(sourcesSql)))
+        {
+            while (iter.HasMoreResults)
+            {
+                var resp = await iter.ReadNextAsync();
+                sources.AddRange(resp);
             }
         }
 
         return JsonSerializer.Serialize(new
         {
-            total_chunks = results.Value.TotalCount,
+            total_chunks = totalChunks,
             file_types = fileTypes,
             directories = directories,
-            directory_count = directories.Count
-        }, new JsonSerializerOptions { WriteIndented = true });
+            directory_count = directories.Count,
+            source_projects = sources
+        }, JsonOptions);
     }
 
-    public async Task<string> SearchByDirectoryAsync(string pathPrefix, string query, int topK = 8)
+    public async Task<string> SearchByDirectoryAsync(string pathPrefix, string query, int topK = 8, string? source = null)
     {
         var embedding = await GetEmbeddingAsync(query);
 
-        var vectorQuery = new VectorizedQuery(embedding)
-        {
-            KNearestNeighborsCount = topK,
-            Fields = { "embedding" }
-        };
+        var filters = new List<string> { "STARTSWITH(c.file_path, @prefix)" };
+        if (!string.IsNullOrEmpty(source))
+            filters.Add($"c.source_project = '{source}'");
 
-        var options = new SearchOptions
-        {
-            Size = topK,
-            VectorSearch = new() { Queries = { vectorQuery } },
-            Filter = $"search.ismatch('{pathPrefix}*', 'file_path')",
-            Select = { "file_path", "file_type", "content", "chunk_index" },
-            SearchMode = SearchMode.All
-        };
+        var whereClause = "WHERE " + string.Join(" AND ", filters);
 
-        var results = await _searchClient.SearchAsync<SearchDocument>(query, options);
+        var sql = $"SELECT TOP {topK} c.file_path, c.file_type, c.content, c.chunk_index, c.source_project, " +
+                  $"VectorDistance(c.embedding, @embedding) AS distance " +
+                  $"FROM c {whereClause} " +
+                  $"ORDER BY VectorDistance(c.embedding, @embedding)";
+
+        var queryDef = new QueryDefinition(sql)
+            .WithParameter("@embedding", embedding)
+            .WithParameter("@prefix", pathPrefix);
 
         var items = new List<object>();
-        await foreach (var result in results.Value.GetResultsAsync())
+        using var iterator = _container.GetItemQueryIterator<dynamic>(queryDef);
+        while (iterator.HasMoreResults)
         {
-            items.Add(new
+            var response = await iterator.ReadNextAsync();
+            foreach (var item in response)
             {
-                file_path = result.Document.GetString("file_path"),
-                file_type = result.Document.GetString("file_type"),
-                content = result.Document.GetString("content"),
-                chunk_index = result.Document.GetInt32("chunk_index"),
-                score = result.Score
-            });
+                items.Add(new
+                {
+                    file_path = (string)item.file_path,
+                    file_type = (string)item.file_type,
+                    content = (string)item.content,
+                    chunk_index = (int)item.chunk_index,
+                    source_project = (string)item.source_project,
+                    distance = (double)item.distance
+                });
+            }
         }
 
-        return JsonSerializer.Serialize(new { results = items, count = items.Count, directory = pathPrefix },
-            new JsonSerializerOptions { WriteIndented = true });
+        return JsonSerializer.Serialize(new { results = items, count = items.Count, directory = pathPrefix }, JsonOptions);
     }
 }

@@ -8,7 +8,7 @@
     "mcp": {
       "serverName": "cimmeria-rag",
       "serverVersion": "1.0.0",
-      "instructions": "Semantic search over the Cimmeria Stargate Worlds server codebase."
+      "instructions": "Semantic search over the Cimmeria (Stargate Worlds) server and SGW client codebases. Supports filtering by source: cimmeria-server or sgw-client."
     }
   }
 }

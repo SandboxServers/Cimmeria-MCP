@@ -9,7 +9,7 @@ data "azurerm_storage_account" "storage" {
 
 resource "azurerm_service_plan" "plan" {
   name                = "${var.function_app_name}-plan"
-  location            = data.azurerm_resource_group.rg.location
+  location            = var.location
   resource_group_name = data.azurerm_resource_group.rg.name
   os_type             = "Windows"
   sku_name            = "Y1"
@@ -33,7 +33,7 @@ resource "azurerm_windows_function_app" "func" {
   app_settings = {
     "OPENAI_ENDPOINT" = var.openai_endpoint
     "OPENAI_KEY"      = var.openai_key
-    "SEARCH_ENDPOINT" = var.search_endpoint
-    "SEARCH_KEY"      = var.search_key
+    "COSMOS_ENDPOINT" = var.cosmos_endpoint
+    "COSMOS_KEY"      = var.cosmos_key
   }
 }

@@ -39,14 +39,14 @@ variable "openai_key" {
   sensitive   = true
 }
 
-variable "search_endpoint" {
-  description = "Azure AI Search endpoint URL"
+variable "cosmos_endpoint" {
+  description = "Azure Cosmos DB endpoint URL"
   type        = string
   sensitive   = true
 }
 
-variable "search_key" {
-  description = "Azure AI Search API key"
+variable "cosmos_key" {
+  description = "Azure Cosmos DB primary key"
   type        = string
   sensitive   = true
 }
