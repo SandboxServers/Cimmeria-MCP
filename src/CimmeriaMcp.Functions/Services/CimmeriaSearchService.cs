@@ -51,7 +51,7 @@ public class CimmeriaSearchService
         var vectorQuery = new VectorizedQuery(embedding)
         {
             KNearestNeighborsCount = topK,
-            Fields = { "content_vector" }
+            Fields = { "embedding" }
         };
 
         var options = new SearchOptions
@@ -161,7 +161,7 @@ public class CimmeriaSearchService
         var vectorQuery = new VectorizedQuery(embedding)
         {
             KNearestNeighborsCount = topK,
-            Fields = { "content_vector" }
+            Fields = { "embedding" }
         };
 
         var options = new SearchOptions
@@ -240,7 +240,7 @@ public class CimmeriaSearchService
         var vectorQuery = new VectorizedQuery(embedding)
         {
             KNearestNeighborsCount = topK,
-            Fields = { "content_vector" }
+            Fields = { "embedding" }
         };
 
         var options = new SearchOptions
