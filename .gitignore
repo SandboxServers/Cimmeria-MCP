@@ -24,6 +24,7 @@ appsettings.Development.json
 *.tfstate
 *.tfstate.backup
 *.tfplan
+*.tfvars
 .terraform.lock.hcl
 
 ## OS
