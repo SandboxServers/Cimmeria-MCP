@@ -1,0 +1,20 @@
+stages:
+  - stage: Build
+    displayName: 'Build'
+    jobs:
+      - template: ../jobs/build.yml
+
+  - stage: Test
+    displayName: 'Test'
+    dependsOn: Build
+    jobs:
+      - template: ../jobs/test.yml
+
+  - stage: Deploy
+    displayName: 'Deploy'
+    dependsOn:
+      - Build
+      - Test
+    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+    jobs:
+      - template: ../jobs/deploy.yml

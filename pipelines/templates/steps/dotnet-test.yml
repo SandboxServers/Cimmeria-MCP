@@ -1,0 +1,18 @@
+steps:
+  - task: UseDotNet@2
+    displayName: 'Install .NET 10 SDK'
+    inputs:
+      packageType: 'sdk'
+      version: '10.x'
+      includePreviewVersions: true
+
+  - script: dotnet test -c Release --logger trx --results-directory $(Agent.TempDirectory)/test-results
+    displayName: 'Run tests'
+    workingDirectory: .
+
+  - task: PublishTestResults@2
+    displayName: 'Publish test results'
+    condition: always()
+    inputs:
+      testResultsFormat: 'VSTest'
+      testResultsFiles: '$(Agent.TempDirectory)/test-results/**/*.trx'

@@ -1,0 +1,17 @@
+steps:
+  - task: DownloadBuildArtifacts@1
+    displayName: 'Download artifact'
+    inputs:
+      buildType: 'current'
+      downloadType: 'single'
+      artifactName: 'function-app'
+      downloadPath: '$(System.ArtifactsDirectory)'
+
+  - task: AzureFunctionApp@2
+    displayName: 'Deploy to Azure Functions'
+    inputs:
+      azureSubscription: '$(AzureServiceConnection)'
+      appType: 'functionApp'
+      appName: '$(FunctionAppName)'
+      package: '$(System.ArtifactsDirectory)/function-app'
+      deploymentMethod: 'auto'

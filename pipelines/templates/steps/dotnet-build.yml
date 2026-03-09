@@ -1,0 +1,25 @@
+steps:
+  - task: UseDotNet@2
+    displayName: 'Install .NET 10 SDK'
+    inputs:
+      packageType: 'sdk'
+      version: '10.x'
+      includePreviewVersions: true
+
+  - script: dotnet restore
+    displayName: 'Restore NuGet packages'
+    workingDirectory: src/CimmeriaMcp.Functions
+
+  - script: dotnet build -c Release --no-restore
+    displayName: 'Build'
+    workingDirectory: src/CimmeriaMcp.Functions
+
+  - script: dotnet publish -c Release --no-build -o $(Build.ArtifactStagingDirectory)/publish
+    displayName: 'Publish'
+    workingDirectory: src/CimmeriaMcp.Functions
+
+  - task: PublishBuildArtifacts@1
+    displayName: 'Publish artifact'
+    inputs:
+      pathToPublish: '$(Build.ArtifactStagingDirectory)/publish'
+      artifactName: 'function-app'

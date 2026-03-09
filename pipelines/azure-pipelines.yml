@@ -1,0 +1,10 @@
+trigger:
+  branches:
+    include:
+      - main
+
+pool:
+  vmImage: 'windows-latest'
+
+stages:
+  - template: templates/stages/build-test-deploy.yml

@@ -1,0 +1,5 @@
+jobs:
+  - job: Deploy
+    displayName: 'Deploy to Azure Functions'
+    steps:
+      - template: ../steps/deploy-function.yml

@@ -1,0 +1,5 @@
+jobs:
+  - job: Build
+    displayName: 'Build Function App'
+    steps:
+      - template: ../steps/dotnet-build.yml

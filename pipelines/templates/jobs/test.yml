@@ -1,0 +1,5 @@
+jobs:
+  - job: Test
+    displayName: 'Run Tests'
+    steps:
+      - template: ../steps/dotnet-test.yml
