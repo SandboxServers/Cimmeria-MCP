@@ -4,13 +4,19 @@ variable "subscription_id" {
 }
 
 variable "resource_group_name" {
-  description = "Existing resource group"
+  description = "Resource group name"
   type        = string
   default     = "ailab-rg"
 }
 
 variable "location" {
-  description = "Azure region"
+  description = "Primary Azure region (OpenAI, AI Search, Service Plan, Function App)"
+  type        = string
+  default     = "eastus"
+}
+
+variable "cosmos_location" {
+  description = "Azure region for Cosmos DB account"
   type        = string
   default     = "eastus2"
 }
@@ -22,31 +28,43 @@ variable "function_app_name" {
 }
 
 variable "storage_account_name" {
-  description = "Existing storage account name"
+  description = "Storage account name"
   type        = string
   default     = "ailabstoragesc"
 }
 
-variable "openai_endpoint" {
-  description = "Azure OpenAI endpoint URL"
+variable "openai_account_name" {
+  description = "Azure OpenAI account name"
   type        = string
-  sensitive   = true
+  default     = "ailab-openai-cady"
 }
 
-variable "openai_key" {
-  description = "Azure OpenAI API key"
+variable "cosmos_account_name" {
+  description = "Cosmos DB account name"
   type        = string
-  sensitive   = true
+  default     = "cimmeria-cosmos"
 }
 
-variable "cosmos_endpoint" {
-  description = "Azure Cosmos DB endpoint URL"
+variable "search_service_name" {
+  description = "Azure AI Search service name"
   type        = string
-  sensitive   = true
+  default     = "ailab-search-sc"
 }
 
-variable "cosmos_key" {
-  description = "Azure Cosmos DB primary key"
-  type        = string
-  sensitive   = true
+variable "deploy_search" {
+  description = "Deploy Azure AI Search (false for testing — free tier limited to 1 per subscription)"
+  type        = bool
+  default     = true
+}
+
+variable "create_resource_group" {
+  description = "Create the resource group and storage account (true for test deployments)"
+  type        = bool
+  default     = false
+}
+
+variable "cosmos_free_tier" {
+  description = "Enable Cosmos DB free tier (limited to 1 per subscription)"
+  type        = bool
+  default     = false
 }
