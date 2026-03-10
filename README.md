@@ -1,6 +1,10 @@
 # Cimmeria MCP Server
 
+[![Site](https://img.shields.io/badge/showcase-live-6366f1)](https://gentle-field-0193be20f.4.azurestaticapps.net)
+
 A hosted MCP (Model Context Protocol) server providing AI-powered codebase intelligence for the [Cimmeria](https://github.com/SandboxServers/Cimmeria) Stargate Worlds server emulator, SGW client assets, and BigWorld engine. Built as a C# Azure Function App using the Azure Functions MCP Extension, served over Streamable HTTP.
+
+**[View the showcase site](https://gentle-field-0193be20f.4.azurestaticapps.net)** — architecture, tools, and free-tier breakdown.
 
 ## How It Works
 
