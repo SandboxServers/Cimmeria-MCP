@@ -199,7 +199,165 @@
       margin: 0 auto;
     }
 
-    .architecture {
+    /* ── Architecture Diagram ── */
+    .arch {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0;
+      margin-bottom: 3rem;
+    }
+
+    .arch-layer {
+      display: flex;
+      justify-content: center;
+      gap: 1rem;
+      width: 100%;
+      flex-wrap: wrap;
+    }
+
+    .arch-node {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 0.75rem;
+      padding: 1rem 1.25rem;
+      text-align: center;
+      min-width: 160px;
+      flex: 0 1 auto;
+      transition: border-color 0.2s;
+    }
+
+    .arch-node:hover {
+      border-color: var(--accent);
+    }
+
+    .arch-node-title {
+      font-family: 'Inter', sans-serif;
+      font-weight: 700;
+      font-size: 0.9rem;
+      margin-bottom: 0.25rem;
+    }
+
+    .arch-node-detail {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.7rem;
+      color: var(--text-dim);
+      line-height: 1.5;
+    }
+
+    .arch-node-badge {
+      display: inline-block;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.6rem;
+      padding: 0.15rem 0.5rem;
+      border-radius: 999px;
+      margin-top: 0.4rem;
+      background: rgba(255,255,255,0.05);
+      color: var(--text-dim);
+    }
+
+    .arch-node.accent { border-color: rgba(99,102,241,0.4); }
+    .arch-node.accent .arch-node-title { color: var(--accent); }
+    .arch-node.cyan { border-color: rgba(6,182,212,0.4); }
+    .arch-node.cyan .arch-node-title { color: var(--cyan); }
+    .arch-node.green { border-color: rgba(34,197,94,0.4); }
+    .arch-node.green .arch-node-title { color: var(--green); }
+    .arch-node.amber { border-color: rgba(245,158,11,0.4); }
+    .arch-node.amber .arch-node-title { color: var(--amber); }
+    .arch-node.rose { border-color: rgba(244,63,94,0.4); }
+    .arch-node.rose .arch-node-title { color: var(--rose); }
+
+    .arch-node.wide {
+      flex: 1 1 100%;
+      max-width: 520px;
+    }
+
+    .arch-node.full {
+      flex: 1 1 100%;
+      max-width: 700px;
+    }
+
+    .arch-arrow {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 0.4rem 0;
+      color: var(--text-dim);
+      font-size: 0.7rem;
+      font-family: 'JetBrains Mono', monospace;
+      line-height: 1;
+      gap: 0.15rem;
+    }
+
+    .arch-arrow .arrow-line {
+      width: 1px;
+      height: 12px;
+      background: var(--border);
+    }
+
+    .arch-arrow .arrow-label {
+      color: var(--text-dim);
+      font-size: 0.65rem;
+      opacity: 0.7;
+    }
+
+    .arch-arrow .arrow-head {
+      font-size: 0.6rem;
+      color: var(--text-dim);
+    }
+
+    .arch-branch {
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      gap: 0;
+      width: 100%;
+      padding: 0.5rem 0 0;
+      position: relative;
+    }
+
+    .arch-branch::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 50%;
+      transform: translateX(-50%);
+      width: calc(100% - 160px);
+      max-width: 620px;
+      height: 1px;
+      background: var(--border);
+    }
+
+    .arch-branch-arm {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      flex: 1;
+      max-width: 180px;
+    }
+
+    .arch-branch-arm .arrow-line {
+      width: 1px;
+      height: 16px;
+      background: var(--border);
+    }
+
+    .arch-branch-arm .arrow-head {
+      font-size: 0.6rem;
+      color: var(--text-dim);
+      line-height: 1;
+    }
+
+    .arch-note {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.65rem;
+      color: var(--text-dim);
+      opacity: 0.6;
+      text-align: center;
+      padding: 0.25rem 0;
+    }
+
+    .code-block {
       background: var(--bg-card);
       border: 1px solid var(--border);
       border-radius: 1rem;
@@ -211,12 +369,15 @@
       white-space: pre;
       color: var(--text-dim);
       margin-bottom: 3rem;
+      max-width: 700px;
+      margin-left: auto;
+      margin-right: auto;
     }
 
-    .architecture .hl-accent { color: var(--accent); }
-    .architecture .hl-cyan { color: var(--cyan); }
-    .architecture .hl-green { color: var(--green); }
-    .architecture .hl-amber { color: var(--amber); }
+    .code-block .hl-accent { color: var(--accent); }
+    .code-block .hl-cyan { color: var(--cyan); }
+    .code-block .hl-green { color: var(--green); }
+    .code-block .hl-amber { color: var(--amber); }
 
     /* ── Tool Category Cards ── */
     .tools-grid {
@@ -598,7 +759,8 @@
       .free-tier { grid-template-columns: repeat(2, 1fr); }
       .graph-stats { grid-template-columns: repeat(4, 1fr); }
       .graph-samples { grid-template-columns: 1fr; }
-      .architecture { font-size: 0.75rem; }
+      .arch-node { min-width: 140px; padding: 0.85rem 1rem; }
+      .arch-node-title { font-size: 0.85rem; }
       section { padding: 3.5rem 1.5rem; }
     }
 
@@ -622,7 +784,11 @@
       .graph-stat .value { font-size: 1.2rem; }
       .graph-samples { grid-template-columns: 1fr; }
 
-      .architecture { font-size: 0.65rem; padding: 1.25rem; line-height: 1.6; }
+      .arch-layer { gap: 0.6rem; }
+      .arch-node { min-width: 120px; padding: 0.75rem; }
+      .arch-node-title { font-size: 0.8rem; }
+      .arch-node-detail { font-size: 0.62rem; }
+      .arch-branch-arm { max-width: 140px; }
       .activity-feed { max-height: 300px; }
 
       .tool-ref { padding: 0.75rem 1rem; }
@@ -637,7 +803,11 @@
       .stat-label { font-size: 0.7rem; }
       .graph-stats { grid-template-columns: repeat(2, 1fr); }
       .graph-stat { padding: 0.75rem 0.5rem; }
-      .architecture { font-size: 0.55rem; padding: 1rem; }
+      .arch-layer { gap: 0.5rem; }
+      .arch-node { min-width: 0; flex: 1 1 45%; padding: 0.6rem; }
+      .arch-node-title { font-size: 0.75rem; }
+      .arch-node-detail { font-size: 0.58rem; }
+      .arch-node-badge { font-size: 0.55rem; }
       .tool-tag { font-size: 0.65rem; padding: 0.2rem 0.4rem; }
       .tier-card { padding: 1rem; }
       .graph-sample pre { font-size: 0.62rem; padding: 0.5rem; }
@@ -692,52 +862,119 @@
       <h2>Architecture</h2>
       <p>Built on Azure's free and low-cost tiers. Every component earns its place.</p>
     </div>
-    <div class="architecture">                      ┌──────────────────────────────────┐
-                      │    <span class="hl-accent">MCP Client (Claude Code)</span>        │
-                      └────────────────┬─────────────────┘
-                                       │ Streamable HTTP
-                                       │ x-functions-key
-                      ┌────────────────▼─────────────────┐
-                      │  <span class="hl-amber">API Management</span> (Consumption)    │
-                      │  rate limiting · analytics · CORS │
-                      └────────────────┬─────────────────┘
-                                       │
-       ┌───────────────────────────────▼────────────────────────────────┐
-       │                  <span class="hl-cyan">Azure Functions</span> · .NET 10                      │
-       │          6 Search · 14 Graph · 14 AI Skills · 3 Infra         │
-       │                  /runtime/webhooks/mcp                         │
-       └──────┬──────────┬───────────┬───────────┬─────────────────────┘
-              │          │           │           │
-   ┌──────────┘   ┌──────┘    ┌──────┘    ┌──────┘
-   ▼              ▼           ▼           ▼
-┌───────────┐ ┌───────────┐ ┌──────────┐ ┌──────────┐
-│<span class="hl-cyan">AI Search</span>  │ │<span class="hl-green">Cosmos DB</span>  │ │<span class="hl-amber">Azure</span>    │ │<span class="hl-accent">Key Vault</span> │
-│ HNSW+BM25 │ │ knowledge │ │<span class="hl-amber">OpenAI</span>   │ │ secrets  │
-│ 505-dim   │ │ graph +   │ │ embed +  │ │ managed  │
-│ hybrid    │ │ vectors   │ │ GPT-5.1  │ │ identity │
-│  (free)   │ │  (free)   │ │ chat +   │ │   RBAC   │
-│           │ │           │ │ codex    │ │          │
-└─────┬─────┘ └─────┬─────┘ └──────────┘ └──────────┘
-      │             │
-      │        <span class="hl-green">Change Feed</span> ──▶ on-demand indexer (30s debounce)
-      │             │
-      ▼             ▼
-┌─────────────────────────────────────────────────────────┐
-│                    <span class="hl-accent">Observability</span>                        │
-│                                                         │
-│  <span class="hl-green">App Insights</span>  <span class="hl-accent">Log Analytics</span>  <span class="hl-cyan">SignalR</span>  <span class="hl-amber">Automation</span>  │
-│  requests,    KQL queries,  live      monthly     │
-│  latency,     diagnostics,  tool      key         │
-│  failures     Cosmos + Func events    rotation    │
-│               logs                                │
-└───────────────────────────┬─────────────────────────────┘
-                            │
-               ┌────────────▼──────────────┐
-               │    <span class="hl-cyan">Static Web App</span>          │
-               │  live charts · SignalR    │
-               │  activity feed · docs     │
-               │        (free)             │
-               └───────────────────────────┘</div>
+    <div class="arch">
+      <!-- Layer 1: Client -->
+      <div class="arch-layer">
+        <div class="arch-node accent wide">
+          <div class="arch-node-title">MCP Client (Claude Code)</div>
+          <div class="arch-node-detail">Streamable HTTP &middot; x-functions-key auth</div>
+        </div>
+      </div>
+
+      <div class="arch-arrow">
+        <div class="arrow-line"></div>
+        <div class="arrow-head">&#x25BC;</div>
+      </div>
+
+      <!-- Layer 2: APIM -->
+      <div class="arch-layer">
+        <div class="arch-node amber wide">
+          <div class="arch-node-title">API Management</div>
+          <div class="arch-node-detail">rate limiting &middot; analytics &middot; CORS</div>
+          <div class="arch-node-badge">Consumption tier</div>
+        </div>
+      </div>
+
+      <div class="arch-arrow">
+        <div class="arrow-line"></div>
+        <div class="arrow-head">&#x25BC;</div>
+      </div>
+
+      <!-- Layer 3: Functions -->
+      <div class="arch-layer">
+        <div class="arch-node cyan full">
+          <div class="arch-node-title">Azure Functions &middot; .NET 10 Isolated</div>
+          <div class="arch-node-detail">6 Search &middot; 14 Graph &middot; 14 AI Skills &middot; 3 Infra</div>
+          <div class="arch-node-badge">/runtime/webhooks/mcp</div>
+        </div>
+      </div>
+
+      <!-- Branching arrows -->
+      <div class="arch-branch">
+        <div class="arch-branch-arm"><div class="arrow-line"></div><div class="arrow-head">&#x25BC;</div></div>
+        <div class="arch-branch-arm"><div class="arrow-line"></div><div class="arrow-head">&#x25BC;</div></div>
+        <div class="arch-branch-arm"><div class="arrow-line"></div><div class="arrow-head">&#x25BC;</div></div>
+        <div class="arch-branch-arm"><div class="arrow-line"></div><div class="arrow-head">&#x25BC;</div></div>
+      </div>
+
+      <!-- Layer 4: Data stores -->
+      <div class="arch-layer">
+        <div class="arch-node cyan">
+          <div class="arch-node-title">AI Search</div>
+          <div class="arch-node-detail">HNSW + BM25<br>505-dim hybrid</div>
+          <div class="arch-node-badge">free tier</div>
+        </div>
+        <div class="arch-node green">
+          <div class="arch-node-title">Cosmos DB</div>
+          <div class="arch-node-detail">knowledge graph<br>+ vector search</div>
+          <div class="arch-node-badge">free tier</div>
+        </div>
+        <div class="arch-node amber">
+          <div class="arch-node-title">Azure OpenAI</div>
+          <div class="arch-node-detail">embed + GPT-5.1<br>chat + codex</div>
+          <div class="arch-node-badge">S0</div>
+        </div>
+        <div class="arch-node accent">
+          <div class="arch-node-title">Key Vault</div>
+          <div class="arch-node-detail">managed identity<br>RBAC secrets</div>
+          <div class="arch-node-badge">standard</div>
+        </div>
+      </div>
+
+      <!-- Change feed note -->
+      <div class="arch-arrow">
+        <div class="arrow-line"></div>
+        <div class="arrow-label">Change Feed &rarr; on-demand indexer (30s debounce)</div>
+        <div class="arrow-line"></div>
+        <div class="arrow-head">&#x25BC;</div>
+      </div>
+
+      <!-- Layer 5: Observability -->
+      <div class="arch-layer">
+        <div class="arch-node green">
+          <div class="arch-node-title">App Insights</div>
+          <div class="arch-node-detail">requests, latency,<br>failures</div>
+        </div>
+        <div class="arch-node accent">
+          <div class="arch-node-title">Log Analytics</div>
+          <div class="arch-node-detail">KQL queries,<br>diagnostics</div>
+        </div>
+        <div class="arch-node cyan">
+          <div class="arch-node-title">SignalR</div>
+          <div class="arch-node-detail">live tool<br>invocation events</div>
+          <div class="arch-node-badge">free tier</div>
+        </div>
+        <div class="arch-node amber">
+          <div class="arch-node-title">Automation</div>
+          <div class="arch-node-detail">monthly key<br>rotation</div>
+          <div class="arch-node-badge">basic</div>
+        </div>
+      </div>
+
+      <div class="arch-arrow">
+        <div class="arrow-line"></div>
+        <div class="arrow-head">&#x25BC;</div>
+      </div>
+
+      <!-- Layer 6: Static site -->
+      <div class="arch-layer">
+        <div class="arch-node cyan wide">
+          <div class="arch-node-title">Static Web App</div>
+          <div class="arch-node-detail">live charts &middot; SignalR activity feed &middot; docs</div>
+          <div class="arch-node-badge">free tier</div>
+        </div>
+      </div>
+    </div>
   </section>
 
   <!-- ══════════════════════════════════════════════════════════ -->
@@ -1339,7 +1576,7 @@
       <h2>Connect in Seconds</h2>
       <p>Add to your Claude Code config and start querying.</p>
     </div>
-    <div class="architecture">{
+    <div class="code-block">{
   "<span class="hl-accent">mcpServers</span>": {
     "<span class="hl-cyan">cimmeria-rag</span>": {
       "<span class="hl-green">type</span>": "http",
