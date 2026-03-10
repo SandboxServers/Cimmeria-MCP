@@ -36,12 +36,11 @@
 
     .hero {
       position: relative;
-      min-height: 100vh;
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      padding: 2rem;
+      padding: 6rem 2rem 4rem;
       text-align: center;
     }
 
@@ -331,15 +330,27 @@
     }
 
     .tool-ref-sample {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 0.75rem;
+      font-size: 0.82rem;
+      font-style: italic;
       background: rgba(0, 0, 0, 0.3);
-      border: 1px solid var(--border);
-      border-radius: 0.375rem;
+      border-left: 3px solid var(--accent);
+      border-radius: 0.25rem;
       padding: 0.5rem 0.75rem;
-      overflow-x: auto;
       color: var(--text-dim);
-      white-space: pre;
+    }
+
+    .tool-ref-sample::before {
+      content: '\201C';
+      color: var(--accent);
+      font-size: 1.1rem;
+      margin-right: 0.15rem;
+    }
+
+    .tool-ref-sample::after {
+      content: '\201D';
+      color: var(--accent);
+      font-size: 1.1rem;
+      margin-left: 0.15rem;
     }
 
     /* ── Knowledge Graph ── */
@@ -681,22 +692,52 @@
       <h2>Architecture</h2>
       <p>Built on Azure's free and low-cost tiers. Every component earns its place.</p>
     </div>
-    <div class="architecture"><span class="hl-accent">Claude Code</span> ──HTTP──&gt; <span class="hl-cyan">Azure Functions</span> (.NET 10)
-                     /runtime/webhooks/mcp
-                         │
-           ┌─────────────┼──────────────┬──────────────┐
-           ▼             ▼              ▼              ▼
-    <span class="hl-cyan">Azure AI Search</span>   <span class="hl-green">Cosmos DB</span>     <span class="hl-amber">Azure OpenAI</span>   <span class="hl-accent">Key Vault</span>
-    Hybrid text+vector  Knowledge     text-embedding   Secrets
-    HNSW 505-dim        Graph +       -3-small         management
-    BM25 ranking        Vector        GPT-5.1 Chat     RBAC-based
-    (free tier)         Fallback      GPT-5.1 Codex    (standard)
-                        (free tier)   (dual-model)
-           │             │              │              │
-           └─────────────┼──────────────┴──────────────┘
-                         ▼
-              <span class="hl-green">Application Insights</span> + <span class="hl-accent">Log Analytics</span>
-              Monitoring &amp; diagnostics (5 GB/month free)</div>
+    <div class="architecture">                      ┌──────────────────────────────────┐
+                      │    <span class="hl-accent">MCP Client (Claude Code)</span>        │
+                      └────────────────┬─────────────────┘
+                                       │ Streamable HTTP
+                                       │ x-functions-key
+                      ┌────────────────▼─────────────────┐
+                      │  <span class="hl-amber">API Management</span> (Consumption)    │
+                      │  rate limiting · analytics · CORS │
+                      └────────────────┬─────────────────┘
+                                       │
+       ┌───────────────────────────────▼────────────────────────────────┐
+       │                  <span class="hl-cyan">Azure Functions</span> · .NET 10                      │
+       │          6 Search · 14 Graph · 14 AI Skills · 3 Infra         │
+       │                  /runtime/webhooks/mcp                         │
+       └──────┬──────────┬───────────┬───────────┬─────────────────────┘
+              │          │           │           │
+   ┌──────────┘   ┌──────┘    ┌──────┘    ┌──────┘
+   ▼              ▼           ▼           ▼
+┌───────────┐ ┌───────────┐ ┌──────────┐ ┌──────────┐
+│<span class="hl-cyan">AI Search</span>  │ │<span class="hl-green">Cosmos DB</span>  │ │<span class="hl-amber">Azure</span>    │ │<span class="hl-accent">Key Vault</span> │
+│ HNSW+BM25 │ │ knowledge │ │<span class="hl-amber">OpenAI</span>   │ │ secrets  │
+│ 505-dim   │ │ graph +   │ │ embed +  │ │ managed  │
+│ hybrid    │ │ vectors   │ │ GPT-5.1  │ │ identity │
+│  (free)   │ │  (free)   │ │ chat +   │ │   RBAC   │
+│           │ │           │ │ codex    │ │          │
+└─────┬─────┘ └─────┬─────┘ └──────────┘ └──────────┘
+      │             │
+      │        <span class="hl-green">Change Feed</span> ──▶ on-demand indexer (30s debounce)
+      │             │
+      ▼             ▼
+┌─────────────────────────────────────────────────────────┐
+│                    <span class="hl-accent">Observability</span>                        │
+│                                                         │
+│  <span class="hl-green">App Insights</span>  <span class="hl-accent">Log Analytics</span>  <span class="hl-cyan">SignalR</span>  <span class="hl-amber">Automation</span>  │
+│  requests,    KQL queries,  live      monthly     │
+│  latency,     diagnostics,  tool      key         │
+│  failures     Cosmos + Func events    rotation    │
+│               logs                                │
+└───────────────────────────┬─────────────────────────────┘
+                            │
+               ┌────────────▼──────────────┐
+               │    <span class="hl-cyan">Static Web App</span>          │
+               │  live charts · SignalR    │
+               │  activity feed · docs     │
+               │        (free)             │
+               └───────────────────────────┘</div>
   </section>
 
   <!-- ══════════════════════════════════════════════════════════ -->
@@ -781,33 +822,33 @@
       <h3><span class="cat-icon">&#x1F50D;</span> RAG Search Tools</h3>
       <div class="tool-ref">
         <div class="tool-ref-name search">search_cimmeria</div>
-        <div class="tool-ref-desc">Semantic search across the Cimmeria server, SGW client, and BigWorld engine codebases. Returns code, docs, configs, and UI scripts ranked by relevance.</div>
-        <div class="tool-ref-sample">{ "query": "entity replication protocol", "source": "cimmeria-server", "top_k": 5 }</div>
+        <div class="tool-ref-desc">Semantic search across the Cimmeria server, SGW client, and BigWorld engine codebases. Returns code, docs, configs, and UI scripts ranked by relevance. Routes cimmeria-server queries through Azure AI Search (hybrid HNSW + BM25); falls back to Cosmos DB vector search for sgw-client and bigworld-engine.</div>
+        <div class="tool-ref-sample">"Search the cimmeria-server source for how entity replication works"</div>
       </div>
       <div class="tool-ref">
         <div class="tool-ref-name search">list_cimmeria_files</div>
-        <div class="tool-ref-desc">List all indexed files, optionally filtered by extension or source project. Useful for discovering what's in the index.</div>
-        <div class="tool-ref-sample">{ "file_type": "rs", "source": "cimmeria-server" }</div>
+        <div class="tool-ref-desc">List all indexed file paths, optionally filtered by extension or source project. Useful for discovering what's in the index before searching.</div>
+        <div class="tool-ref-sample">"List all the Rust files indexed from the cimmeria-server"</div>
       </div>
       <div class="tool-ref">
         <div class="tool-ref-name search">get_file_content</div>
         <div class="tool-ref-desc">Retrieve the full content of a specific file by path. Reassembles all chunks in order for multi-chunk files.</div>
-        <div class="tool-ref-sample">{ "file_path": "scripts/cell/SGWPlayer.py", "source": "cimmeria-server" }</div>
+        <div class="tool-ref-sample">"Show me the full content of scripts/cell/SGWPlayer.py"</div>
       </div>
       <div class="tool-ref">
         <div class="tool-ref-name search">find_similar_code</div>
-        <div class="tool-ref-desc">Find code patterns similar to a given snippet using pure vector search across all indexed codebases.</div>
-        <div class="tool-ref-sample">{ "code_snippet": "fn handle_damage(&amp;mut self, amount: f32)", "top_k": 5 }</div>
+        <div class="tool-ref-desc">Find code patterns similar to a given snippet using pure vector search. Good for finding parallel implementations across Python, C++, and Rust.</div>
+        <div class="tool-ref-sample">"Find code similar to this damage calculation: fn handle_damage(&amp;mut self, amount: f32)"</div>
       </div>
       <div class="tool-ref">
         <div class="tool-ref-name search">get_project_overview</div>
-        <div class="tool-ref-desc">Get file counts by type, directory tree, index statistics, and available source projects. The bird's-eye view.</div>
-        <div class="tool-ref-sample">{ "source": "bigworld-engine" }</div>
+        <div class="tool-ref-desc">Get file counts by type, directory tree, total indexed chunks, and available source projects. The bird's-eye view of the index.</div>
+        <div class="tool-ref-sample">"Give me an overview of the BigWorld engine codebase"</div>
       </div>
       <div class="tool-ref">
         <div class="tool-ref-name search">search_by_directory</div>
         <div class="tool-ref-desc">Semantic search scoped to a specific directory path prefix. Combines text + vector relevance within a directory subtree.</div>
-        <div class="tool-ref-sample">{ "path_prefix": "scripts/cell/", "query": "combat damage calculation", "top_k": 8 }</div>
+        <div class="tool-ref-sample">"Search for combat-related code inside the scripts/cell/ directory"</div>
       </div>
     </div>
 
@@ -815,73 +856,73 @@
       <h3><span class="cat-icon">&#x1F578;</span> Knowledge Graph Tools</h3>
       <div class="tool-ref">
         <div class="tool-ref-name graph">get_entity_details</div>
-        <div class="tool-ref-desc">Full details about an SGW entity or interface &mdash; properties, methods, inheritance, interfaces, and game system links. Lists all 18 entities and 17 interfaces.</div>
-        <div class="tool-ref-sample">{ "entity_name": "SGWPlayer" }</div>
+        <div class="tool-ref-desc">Full details about an SGW entity or interface &mdash; all properties with types and flags, all methods by type (Client/Cell/Base), parent entity, implemented interfaces, and game system links.</div>
+        <div class="tool-ref-sample">"What are all the properties and methods on the SGWPlayer entity?"</div>
       </div>
       <div class="tool-ref">
         <div class="tool-ref-name graph">get_inheritance_tree</div>
-        <div class="tool-ref-desc">Full inheritance hierarchy for an entity &mdash; ancestors, descendants, and implemented interfaces.</div>
-        <div class="tool-ref-sample">{ "entity_name": "SGWMob" }</div>
+        <div class="tool-ref-desc">Full inheritance hierarchy &mdash; ancestors (who this entity extends), descendants (who extends it), and all implemented interfaces up the chain.</div>
+        <div class="tool-ref-sample">"Show me the full inheritance hierarchy for SGWMob"</div>
       </div>
       <div class="tool-ref">
         <div class="tool-ref-name graph">get_graph_overview</div>
-        <div class="tool-ref-desc">Overview of the entire knowledge graph &mdash; vertex/edge counts by type, all entities, interfaces, and game systems.</div>
-        <div class="tool-ref-sample">{}</div>
+        <div class="tool-ref-desc">Overview of the entire knowledge graph &mdash; vertex/edge counts by type, list of all entities, interfaces, and game systems.</div>
+        <div class="tool-ref-sample">"Give me an overview of the Cimmeria knowledge graph"</div>
       </div>
       <div class="tool-ref">
         <div class="tool-ref-name graph">get_game_system_details</div>
-        <div class="tool-ref-desc">Details about a game system (combat, inventory, missions, etc.) and its associated entities.</div>
-        <div class="tool-ref-sample">{ "system_name": "combat" }</div>
+        <div class="tool-ref-desc">Details about a game system and its associated entities. Systems: combat, inventory, missions, chat, spawning, gate_travel, organizations, trading, groups, account, minigame, cover.</div>
+        <div class="tool-ref-sample">"What entities are involved in the combat system?"</div>
       </div>
       <div class="tool-ref">
         <div class="tool-ref-name graph">get_replicated_properties</div>
-        <div class="tool-ref-desc">All client-visible (CELL_PUBLIC) properties for an entity, including inherited properties from the full chain.</div>
-        <div class="tool-ref-sample">{ "entity_name": "SGWPlayer" }</div>
+        <div class="tool-ref-desc">All client-visible (CELL_PUBLIC) properties for an entity, including inherited properties from the full inheritance chain and implemented interfaces. Essential for client compatibility.</div>
+        <div class="tool-ref-sample">"What properties does the client see for SGWPlayer?"</div>
       </div>
       <div class="tool-ref">
         <div class="tool-ref-name graph">get_method_call_chain</div>
-        <div class="tool-ref-desc">Trace what a method calls (client RPCs, base/cell messages, BigWorld APIs) and what calls it.</div>
-        <div class="tool-ref-sample">{ "entity_name": "SGWMob", "method_name": "threatGenerated" }</div>
+        <div class="tool-ref-desc">Trace what a method calls outward (client RPCs, base/cell messages, BigWorld APIs, other methods) and what calls it inward. Shows full data flow.</div>
+        <div class="tool-ref-sample">"What does SGWMob.threatGenerated call, and what calls it?"</div>
       </div>
       <div class="tool-ref">
         <div class="tool-ref-name graph">traverse_graph</div>
-        <div class="tool-ref-desc">Walk the graph from a starting entity following a specific edge type (inherits, implements, sends_to_client, etc.) to a configurable depth.</div>
-        <div class="tool-ref-sample">{ "start_entity": "SGWPlayer", "edge_type": "implements", "depth": 2 }</div>
+        <div class="tool-ref-desc">Walk the graph from a starting entity following a specific edge type to configurable depth. Edge types: inherits, implements, has_property, has_client_method, has_cell_method, has_base_method, part_of_system, sends_to_client, calls_self, and more.</div>
+        <div class="tool-ref-sample">"What interfaces does SGWPlayer implement? Traverse 2 levels deep."</div>
       </div>
       <div class="tool-ref">
         <div class="tool-ref-name graph">lookup_enum</div>
-        <div class="tool-ref-desc">Look up SGW enumerations and constants by enum name or by token name. 124 enumerations + 1,276 constants.</div>
-        <div class="tool-ref-sample">{ "enum_name": "EDamageType" }</div>
+        <div class="tool-ref-desc">Look up SGW enumerations by name (returns all tokens/values) or search by token name (returns which enum it belongs to). 124 enumerations + 1,276 constants.</div>
+        <div class="tool-ref-sample">"What are all the values in the EDamageType enumeration?"</div>
       </div>
       <div class="tool-ref">
         <div class="tool-ref-name graph">resolve_type</div>
-        <div class="tool-ref-desc">Resolve a BigWorld type alias to its full structure &mdash; simple aliases, arrays, and FIXED_DICT compound types with all fields.</div>
-        <div class="tool-ref-sample">{ "type_name": "CharacterInfo" }</div>
+        <div class="tool-ref-desc">Resolve a BigWorld type alias to its full structure. Handles simple aliases (CONTROLLER_ID &rarr; INT32), arrays, and FIXED_DICT compound types with all fields. 63 type aliases available.</div>
+        <div class="tool-ref-sample">"What fields are in the CharacterInfo FIXED_DICT type?"</div>
       </div>
       <div class="tool-ref">
         <div class="tool-ref-name graph">lookup_game_def</div>
-        <div class="tool-ref-desc">Game data definition schemas &mdash; fields, cross-references to other defs, and enum references. Ability, Item, Mission, LootTable, and more.</div>
-        <div class="tool-ref-sample">{ "def_name": "Ability" }</div>
+        <div class="tool-ref-desc">Game data definition schemas &mdash; fields, cross-references to other defs, and enum references. Covers Ability, Effect, Item, Mission, LootTable, Dialog, Stargate, EntityTemplate, Container, Discipline, and more.</div>
+        <div class="tool-ref-sample">"What's the schema for the Ability game definition?"</div>
       </div>
       <div class="tool-ref">
         <div class="tool-ref-name graph">get_implementation_status</div>
-        <div class="tool-ref-desc">Compare .def method definitions against Python and C++ implementations. Per-method or entity-wide coverage analysis.</div>
-        <div class="tool-ref-sample">{ "entity_name": "SGWPlayer" }</div>
+        <div class="tool-ref-desc">Compare .def method definitions against Python and C++ implementations. Without entity_name: overview of all entities. With entity_name: per-method breakdown showing which are defined, Python-implemented, and C++-implemented.</div>
+        <div class="tool-ref-sample">"Which methods on SGWPlayer have Python implementations vs just .def definitions?"</div>
       </div>
       <div class="tool-ref">
         <div class="tool-ref-name graph">cross_reference</div>
-        <div class="tool-ref-desc">Search across the entire knowledge graph for a term &mdash; finds matching methods, properties, enums, constants, game defs, and call chains.</div>
-        <div class="tool-ref-sample">{ "search_term": "Alignment" }</div>
+        <div class="tool-ref-desc">Search across the entire knowledge graph for a term. Finds matching methods (def/Python/C++), properties, enumerations, constants, game definitions, and call chains. One query, full picture.</div>
+        <div class="tool-ref-sample">"Cross-reference everything in the graph related to 'Alignment'"</div>
       </div>
       <div class="tool-ref">
         <div class="tool-ref-name graph">get_entity_protocol</div>
-        <div class="tool-ref-desc">Complete client-server protocol contract for an entity &mdash; client methods, exposed base methods, cell methods, and auto-replicated properties.</div>
-        <div class="tool-ref-sample">{ "entity_name": "Account" }</div>
+        <div class="tool-ref-desc">Complete client-server protocol contract &mdash; all ClientMethods (server&rarr;client), exposed BaseMethods (client&rarr;server), CellMethods (gameplay), and auto-replicated CELL_PUBLIC properties. Includes inherited methods from the full chain.</div>
+        <div class="tool-ref-sample">"What's the full client-server protocol for the Account entity?"</div>
       </div>
       <div class="tool-ref">
         <div class="tool-ref-name graph">lookup_bigworld_api</div>
-        <div class="tool-ref-desc">BigWorld engine API usage across the Python codebase with usage counts, callers, and C++ reimplementations.</div>
-        <div class="tool-ref-sample">{ "api_name": "addTimer" }</div>
+        <div class="tool-ref-desc">BigWorld engine API usage across the Python codebase. Without api_name: lists all APIs with usage counts. With api_name: shows which methods call it and any C++ reimplementations.</div>
+        <div class="tool-ref-sample">"Which entities use BigWorld.addTimer and how?"</div>
       </div>
     </div>
 
@@ -889,73 +930,73 @@
       <h3><span class="cat-icon">&#x2728;</span> AI Skill Tools</h3>
       <div class="tool-ref">
         <div class="tool-ref-name ai">explain_cimmeria</div>
-        <div class="tool-ref-desc">Ask a question about the codebase and get an AI-synthesized answer. Combines RAG search + knowledge graph + GPT for coherent explanations.</div>
-        <div class="tool-ref-sample">{ "question": "How does the combat system handle threat?", "focus": "cimmeria-server" }</div>
+        <div class="tool-ref-desc">Ask a question about the codebase and get an AI-synthesized answer. Gathers RAG search results + knowledge graph context, then uses GPT-5.1 Chat to produce a coherent explanation with sources and confidence rating.</div>
+        <div class="tool-ref-sample">"How does the combat system handle threat generation between mobs and players?"</div>
       </div>
       <div class="tool-ref">
         <div class="tool-ref-name ai">generate_entity_stub</div>
-        <div class="tool-ref-desc">Generate a Rust struct/impl stub for an SGW entity from its .def definition, with proper types, traits, and method declarations.</div>
-        <div class="tool-ref-sample">{ "entity_name": "SGWPlayer" }</div>
+        <div class="tool-ref-desc">Generate a Rust struct/impl stub from an entity's .def definition. Maps BigWorld types to Rust, groups methods into impl blocks by type, derives traits from interfaces, and uses composition for parent entities.</div>
+        <div class="tool-ref-sample">"Generate the Rust struct and impl stubs for SGWPlayer"</div>
       </div>
       <div class="tool-ref">
         <div class="tool-ref-name ai">translate_python_to_rust</div>
-        <div class="tool-ref-desc">Convert Python BigWorld entity scripts to idiomatic Rust. Translates BigWorld API calls, entity communication patterns, and Python idioms.</div>
-        <div class="tool-ref-sample">{ "entity_name": "SGWMob", "method_name": "doAiAction" }</div>
+        <div class="tool-ref-desc">Convert Python BigWorld entity scripts to idiomatic Rust. Translates BigWorld API calls, entity communication patterns, and Python idioms while preserving behavioral logic exactly. Can target a full entity or a single method.</div>
+        <div class="tool-ref-sample">"Translate the SGWMob.doAiAction method from Python to Rust"</div>
       </div>
       <div class="tool-ref">
         <div class="tool-ref-name ai">generate_tests</div>
-        <div class="tool-ref-desc">Generate Rust #[test] functions derived from Python behavior, .def contracts, and protocol requirements.</div>
-        <div class="tool-ref-sample">{ "entity_name": "SGWPlayer", "method_name": "takeDamage" }</div>
+        <div class="tool-ref-desc">Generate Rust #[test] functions derived from Python behavior, .def contracts, and protocol requirements. Covers unit, property, protocol, and integration tests.</div>
+        <div class="tool-ref-sample">"Generate Rust tests for SGWPlayer.takeDamage"</div>
       </div>
       <div class="tool-ref">
         <div class="tool-ref-name ai">troubleshoot</div>
-        <div class="tool-ref-desc">Diagnose issues with Cimmeria server code. Checks for protocol mismatches, implementation gaps, type errors, and BigWorld API differences.</div>
-        <div class="tool-ref-sample">{ "description": "Client disconnects during trade", "entity_name": "SGWPlayer" }</div>
+        <div class="tool-ref-desc">Diagnose issues with Cimmeria server code. Checks protocol mismatches, implementation gaps, type mismatches, missing replicated properties, incorrect method signatures, and BigWorld API behavioral differences.</div>
+        <div class="tool-ref-sample">"The client disconnects whenever a player tries to trade with another player"</div>
       </div>
       <div class="tool-ref">
         <div class="tool-ref-name ai">review_code</div>
-        <div class="tool-ref-desc">Review Rust code against original SGW .def specifications and Python behavior. Issues rated CRITICAL / WARNING / INFO.</div>
-        <div class="tool-ref-sample">{ "code": "impl SGWPlayer { fn take_damage(...) { ... } }", "entity_name": "SGWPlayer" }</div>
+        <div class="tool-ref-desc">Review Rust code against original SGW .def specs and Python behavior. Checks protocol correctness, property completeness, behavioral fidelity, type safety, and Rust idioms. Issues rated CRITICAL / WARNING / INFO.</div>
+        <div class="tool-ref-sample">"Review this Rust implementation of SGWPlayer against the original spec"</div>
       </div>
       <div class="tool-ref">
         <div class="tool-ref-name ai">check_compatibility</div>
-        <div class="tool-ref-desc">Verify Rust code against the fixed SGW client binary. Checks every ClientMethod, BaseMethod, and CELL_PUBLIC property against .def specs.</div>
-        <div class="tool-ref-sample">{ "code": "impl SGWMob { ... }", "entity_name": "SGWMob" }</div>
+        <div class="tool-ref-desc">Verify Rust code against the fixed SGW client binary. The client CANNOT be modified &mdash; checks every ClientMethod, exposed BaseMethod, CELL_PUBLIC property, and argument type. Returns a compatibility score.</div>
+        <div class="tool-ref-sample">"Will this SGWMob Rust implementation work with the original game client?"</div>
       </div>
       <div class="tool-ref">
         <div class="tool-ref-name ai">analyze_impact</div>
-        <div class="tool-ref-desc">Analyze the impact of changing a method or property. Traces dependents through call chains, cross-entity references, and inheritance.</div>
-        <div class="tool-ref-sample">{ "entity_name": "SGWBeing", "target_name": "hitPoints" }</div>
+        <div class="tool-ref-desc">Analyze the impact of changing a method or property. Traces all dependents through call chains, cross-entity references, client visibility, and inheritance. Rates cascade risk LOW / MEDIUM / HIGH / CRITICAL.</div>
+        <div class="tool-ref-sample">"What would break if I changed the hitPoints property on SGWBeing?"</div>
       </div>
       <div class="tool-ref">
         <div class="tool-ref-name ai">plan_implementation</div>
-        <div class="tool-ref-desc">Create a detailed Rust implementation plan for an entity: struct definition, traits, method priority, dependencies, test strategy, file structure.</div>
-        <div class="tool-ref-sample">{ "entity_name": "SGWMob" }</div>
+        <div class="tool-ref-desc">Create a detailed Rust implementation plan: struct definition, traits, method priority (client-critical first), dependencies, data flow, Python behavioral notes, test strategy, and suggested file structure.</div>
+        <div class="tool-ref-sample">"Create an implementation plan for SGWMob in Rust"</div>
       </div>
       <div class="tool-ref">
         <div class="tool-ref-name ai">whats_next</div>
-        <div class="tool-ref-desc">Recommend what to implement next based on coverage, dependency impact, and game importance across all entities.</div>
-        <div class="tool-ref-sample">{}</div>
+        <div class="tool-ref-desc">Recommend what to implement next by analyzing all entities' implementation status. Ranks by client-criticality, dependency count, Python coverage, and game system impact.</div>
+        <div class="tool-ref-sample">"What entity should I implement next for the Cimmeria server?"</div>
       </div>
       <div class="tool-ref">
         <div class="tool-ref-name ai">analyze_protocol</div>
-        <div class="tool-ref-desc">Analyze the client-server protocol for an entity or game system. Message catalog, data contracts, sequence diagrams, and compatibility notes.</div>
-        <div class="tool-ref-sample">{ "entity_or_system": "combat" }</div>
+        <div class="tool-ref-desc">Analyze the client-server protocol for an entity or game system. Produces a message catalog, data contracts, sequence diagrams, critical compatibility notes, and serialization requirements.</div>
+        <div class="tool-ref-sample">"Analyze the full client-server protocol for the combat system"</div>
       </div>
       <div class="tool-ref">
         <div class="tool-ref-name ai">trace_sequence</div>
-        <div class="tool-ref-desc">Trace the complete message sequence for a game scenario with step-by-step method calls, directions, data, and branching paths.</div>
-        <div class="tool-ref-sample">{ "scenario": "player loots a mob" }</div>
+        <div class="tool-ref-desc">Trace the complete message sequence for a game scenario with step-by-step method calls, direction and data, branching paths, client updates, and timing.</div>
+        <div class="tool-ref-sample">"Trace what happens step by step when a player loots a mob"</div>
       </div>
       <div class="tool-ref">
         <div class="tool-ref-name ai">generate_diagram</div>
         <div class="tool-ref-desc">Generate Mermaid diagrams &mdash; class, sequence, flowchart, state, or dependency graphs. Output is renderable in any Mermaid-compatible tool.</div>
-        <div class="tool-ref-sample">{ "subject": "SGWPlayer inheritance", "diagram_type": "classDiagram" }</div>
+        <div class="tool-ref-sample">"Generate a class diagram showing SGWPlayer's inheritance tree"</div>
       </div>
       <div class="tool-ref">
         <div class="tool-ref-name ai">decode_game_design</div>
-        <div class="tool-ref-desc">Reverse-engineer the game design of an SGW feature from its code. Reconstructs gameplay loops, mechanics, progression, and player experience.</div>
-        <div class="tool-ref-sample">{ "system_or_feature": "gate travel" }</div>
+        <div class="tool-ref-desc">Reverse-engineer the game design of an SGW feature from its code. Reconstructs gameplay loops, rules and mechanics, progression, system interactions, and data models. Written for game designers, not programmers.</div>
+        <div class="tool-ref-sample">"What's the game design behind the gate travel system?"</div>
       </div>
     </div>
   </section>
@@ -966,7 +1007,7 @@
   <section>
     <div class="section-header">
       <h2>Knowledge Graph</h2>
-      <p>A structured map of every entity, method, property, and type in the Stargate Worlds server.</p>
+      <p>A structured map of every entity, method, property, and type in the Stargate Worlds server. The graph captures the original game specification &mdash; .def files, Python scripts, and C++ engine code &mdash; which serves as the blueprint the Rust reimplementation follows. Rust source code is indexed separately and searchable via the RAG Search tools.</p>
     </div>
     <div class="graph-stats">
       <div class="graph-stat">
