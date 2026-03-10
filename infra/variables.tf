@@ -109,6 +109,12 @@ variable "static_site_name" {
   default     = "cimmeria-mcp-site"
 }
 
+variable "alert_email" {
+  description = "Email for budget and monitoring alerts (empty to skip alert resources)"
+  type        = string
+  default     = ""
+}
+
 variable "deploy_showcase" {
   description = "Deploy free-tier showcase resources (Key Vault, App Config, Monitoring)"
   type        = bool

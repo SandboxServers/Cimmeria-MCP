@@ -33,6 +33,13 @@ locals {
   rg_location        = var.create_resource_group ? azurerm_resource_group.rg[0].location : data.azurerm_resource_group.rg[0].location
   storage_name       = var.create_resource_group ? azurerm_storage_account.storage[0].name : data.azurerm_storage_account.storage[0].name
   storage_access_key = var.create_resource_group ? azurerm_storage_account.storage[0].primary_access_key : data.azurerm_storage_account.storage[0].primary_access_key
+
+  tags = {
+    project     = "cimmeria-mcp"
+    environment = var.create_resource_group ? "test" : "production"
+    managed-by  = "terraform"
+    purpose     = "mcp-server"
+  }
 }
 
 # =============================================================================
@@ -46,6 +53,7 @@ resource "azurerm_cosmosdb_account" "cosmos" {
   offer_type          = "Standard"
   kind                = "GlobalDocumentDB"
   free_tier_enabled   = var.cosmos_free_tier
+  tags                = local.tags
 
   automatic_failover_enabled = true
 
@@ -122,6 +130,7 @@ resource "azurerm_cognitive_account" "openai" {
   kind                  = "OpenAI"
   sku_name              = "S0"
   custom_subdomain_name = var.openai_account_name
+  tags                  = local.tags
 }
 
 resource "azurerm_cognitive_deployment" "embedding" {
@@ -238,6 +247,7 @@ resource "azurerm_search_service" "search" {
   location            = var.location
   resource_group_name = local.rg_name
   sku                 = "free"
+  tags                = local.tags
 }
 
 # =============================================================================
@@ -256,6 +266,7 @@ resource "azurerm_key_vault" "vault" {
   soft_delete_retention_days = 7
   purge_protection_enabled   = false
   enable_rbac_authorization  = true
+  tags                       = local.tags
 }
 
 # Deployer (Terraform) gets Key Vault Administrator
@@ -302,6 +313,7 @@ resource "azurerm_log_analytics_workspace" "logs" {
   resource_group_name = local.rg_name
   sku                 = "PerGB2018"
   retention_in_days   = 30
+  tags                = local.tags
 }
 
 # =============================================================================
@@ -315,6 +327,7 @@ resource "azurerm_application_insights" "insights" {
   resource_group_name = local.rg_name
   workspace_id        = azurerm_log_analytics_workspace.logs[0].id
   application_type    = "web"
+  tags                = local.tags
 }
 
 # =============================================================================
@@ -379,6 +392,7 @@ resource "azurerm_static_web_app" "site" {
   resource_group_name = local.rg_name
   sku_tier            = "Free"
   sku_size            = "Free"
+  tags                = local.tags
 }
 
 # =============================================================================
@@ -391,6 +405,7 @@ resource "azurerm_service_plan" "plan" {
   resource_group_name = local.rg_name
   os_type             = "Windows"
   sku_name            = "Y1"
+  tags                = local.tags
 }
 
 resource "azurerm_windows_function_app" "func" {
@@ -404,6 +419,7 @@ resource "azurerm_windows_function_app" "func" {
   client_certificate_mode                       = "Required"
   ftp_publish_basic_authentication_enabled      = false
   webdeploy_publish_basic_authentication_enabled = false
+  tags                                           = local.tags
 
   identity {
     type = "SystemAssigned"
@@ -468,4 +484,47 @@ resource "azurerm_role_assignment" "func_appconfig_reader" {
   scope                = azurerm_app_configuration.config[0].id
   role_definition_name = "App Configuration Data Reader"
   principal_id         = azurerm_windows_function_app.func.identity[0].principal_id
+}
+
+# =============================================================================
+# Azure Monitor Action Group + Budget Alert (free)
+# =============================================================================
+
+resource "azurerm_monitor_action_group" "alerts" {
+  count               = var.deploy_showcase && var.alert_email != "" ? 1 : 0
+  name                = "cimmeria-mcp-alerts"
+  resource_group_name = local.rg_name
+  short_name          = "cimmeria"
+  tags                = local.tags
+
+  email_receiver {
+    name          = "admin"
+    email_address = var.alert_email
+  }
+}
+
+resource "azurerm_consumption_budget_resource_group" "budget" {
+  count             = var.deploy_showcase && var.alert_email != "" ? 1 : 0
+  name              = "cimmeria-mcp-monthly"
+  resource_group_id = var.create_resource_group ? azurerm_resource_group.rg[0].id : data.azurerm_resource_group.rg[0].id
+  amount            = 10
+  time_grain        = "Monthly"
+
+  time_period {
+    start_date = "2026-03-01T00:00:00Z"
+  }
+
+  notification {
+    operator       = "GreaterThanOrEqualTo"
+    threshold      = 80
+    threshold_type = "Actual"
+    contact_groups = [azurerm_monitor_action_group.alerts[0].id]
+  }
+
+  notification {
+    operator       = "GreaterThanOrEqualTo"
+    threshold      = 100
+    threshold_type = "Forecasted"
+    contact_groups = [azurerm_monitor_action_group.alerts[0].id]
+  }
 }

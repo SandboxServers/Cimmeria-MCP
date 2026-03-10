@@ -47,8 +47,17 @@ param appConfigName string = 'cimmeria-mcp-config'
 @description('Azure Static Web App name')
 param staticSiteName string = 'cimmeria-mcp-site'
 
+@description('Email for budget and monitoring alerts (empty to skip)')
+param alertEmail string = ''
+
 @description('Deploy free-tier showcase resources (Key Vault, App Config, Monitoring)')
 param deployShowcase bool = true
+
+var tags = {
+  project: 'cimmeria-mcp'
+  'managed-by': 'bicep'
+  purpose: 'mcp-server'
+}
 
 // =============================================================================
 // Existing Resources
@@ -66,6 +75,7 @@ resource cosmos 'Microsoft.DocumentDB/databaseAccounts@2024-05-15' = {
   name: cosmosAccountName
   location: computeLocation
   kind: 'GlobalDocumentDB'
+  tags: tags
   properties: {
     databaseAccountOfferType: 'Standard'
     enableFreeTier: cosmosFreeTier
@@ -164,6 +174,7 @@ resource openai 'Microsoft.CognitiveServices/accounts@2024-10-01' = {
   name: openaiAccountName
   location: location
   kind: 'OpenAI'
+  tags: tags
   sku: {
     name: 'S0'
   }
@@ -261,6 +272,7 @@ resource gpt54Deployment 'Microsoft.CognitiveServices/accounts/deployments@2024-
 resource search 'Microsoft.Search/searchServices@2024-06-01-preview' = if (deploySearch) {
   name: searchServiceName
   location: location
+  tags: tags
   sku: {
     name: 'free'
   }
@@ -274,6 +286,7 @@ resource search 'Microsoft.Search/searchServices@2024-06-01-preview' = if (deplo
 resource vault 'Microsoft.KeyVault/vaults@2023-07-01' = if (deployShowcase) {
   name: keyVaultName
   location: computeLocation
+  tags: tags
   properties: {
     tenantId: subscription().tenantId
     sku: {
@@ -318,6 +331,7 @@ resource searchKeySecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = if (de
 resource logs 'Microsoft.OperationalInsights/workspaces@2023-09-01' = if (deployShowcase) {
   name: logAnalyticsName
   location: computeLocation
+  tags: tags
   properties: {
     sku: {
       name: 'PerGB2018'
@@ -334,6 +348,7 @@ resource insights 'Microsoft.Insights/components@2020-02-02' = if (deployShowcas
   name: appInsightsName
   location: computeLocation
   kind: 'web'
+  tags: tags
   properties: {
     Application_Type: 'web'
     WorkspaceResourceId: logs.id
@@ -377,6 +392,7 @@ resource cosmosDiagnostics 'Microsoft.Insights/diagnosticSettings@2021-05-01-pre
 resource staticSite 'Microsoft.Web/staticSites@2023-12-01' = if (deployShowcase) {
   name: staticSiteName
   location: computeLocation
+  tags: tags
   sku: {
     name: 'Free'
     tier: 'Free'
@@ -391,6 +407,7 @@ resource staticSite 'Microsoft.Web/staticSites@2023-12-01' = if (deployShowcase)
 resource plan 'Microsoft.Web/serverfarms@2024-04-01' = {
   name: servicePlanName
   location: computeLocation
+  tags: tags
   sku: {
     name: 'Y1'
     tier: 'Dynamic'
@@ -402,6 +419,7 @@ resource func 'Microsoft.Web/sites@2024-04-01' = {
   name: functionAppName
   location: computeLocation
   kind: 'functionapp'
+  tags: tags
   identity: {
     type: 'SystemAssigned'
   }
@@ -514,6 +532,54 @@ resource funcAppConfigRole 'Microsoft.Authorization/roleAssignments@2022-04-01' 
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '516239f1-63e1-4d78-a4de-a74fb236a071')
     principalId: func.identity.principalId
     principalType: 'ServicePrincipal'
+  }
+}
+
+// =============================================================================
+// Azure Monitor Action Group + Budget Alert (free)
+// =============================================================================
+
+resource actionGroup 'Microsoft.Insights/actionGroups@2023-01-01' = if (deployShowcase && alertEmail != '') {
+  name: 'cimmeria-mcp-alerts'
+  location: 'global'
+  tags: tags
+  properties: {
+    groupShortName: 'cimmeria'
+    enabled: true
+    emailReceivers: [
+      {
+        name: 'admin'
+        emailAddress: alertEmail
+      }
+    ]
+  }
+}
+
+resource budget 'Microsoft.Consumption/budgets@2023-11-01' = if (deployShowcase && alertEmail != '') {
+  name: 'cimmeria-mcp-monthly'
+  properties: {
+    category: 'Cost'
+    amount: 10
+    timeGrain: 'Monthly'
+    timePeriod: {
+      startDate: '2026-03-01'
+    }
+    notifications: {
+      actual80: {
+        enabled: true
+        operator: 'GreaterThanOrEqualTo'
+        threshold: 80
+        thresholdType: 'Actual'
+        contactGroups: [actionGroup.id]
+      }
+      forecast100: {
+        enabled: true
+        operator: 'GreaterThanOrEqualTo'
+        threshold: 100
+        thresholdType: 'Forecasted'
+        contactGroups: [actionGroup.id]
+      }
+    }
   }
 }
 
