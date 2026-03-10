@@ -13,7 +13,7 @@ public class CimmeriaSummarizationService
     private const string CodeChunksContainer = "code-chunks";
     private const string GraphContainer = "knowledge-graph";
     private const string EmbeddingModel = "text-embedding-3-small";
-    private const string ChatModel = "gpt-5.4";
+    private const string ChatModel = "gpt-5-4";
 
     private readonly Container _codeContainer;
     private readonly Container _graphContainer;

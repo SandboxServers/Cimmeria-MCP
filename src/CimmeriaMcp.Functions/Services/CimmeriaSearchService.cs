@@ -1,6 +1,8 @@
 using System.Text.Json;
 using Azure;
 using Azure.AI.OpenAI;
+using Azure.Search.Documents;
+using Azure.Search.Documents.Models;
 using Microsoft.Azure.Cosmos;
 using OpenAI.Embeddings;
 
@@ -11,9 +13,11 @@ public class CimmeriaSearchService
     private const string DatabaseName = "cimmeria";
     private const string ContainerName = "code-chunks";
     private const string EmbeddingModel = "text-embedding-3-small";
+    private const string SearchIndexName = "cimmeria-code";
 
     private readonly Container _container;
     private readonly EmbeddingClient _embeddingClient;
+    private readonly SearchClient? _searchClient;
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
     public CimmeriaSearchService()
@@ -40,6 +44,25 @@ public class CimmeriaSearchService
             new Uri(openAiEndpoint),
             new AzureKeyCredential(openAiKey));
         _embeddingClient = azureOpenAiClient.GetEmbeddingClient(EmbeddingModel);
+
+        // AI Search client (optional — used for cimmeria-server hybrid search)
+        var searchEndpoint = Environment.GetEnvironmentVariable("SEARCH_ENDPOINT");
+        var searchKey = Environment.GetEnvironmentVariable("SEARCH_KEY");
+        if (!string.IsNullOrEmpty(searchEndpoint) && !string.IsNullOrEmpty(searchKey))
+        {
+            _searchClient = new SearchClient(
+                new Uri(searchEndpoint),
+                SearchIndexName,
+                new AzureKeyCredential(searchKey));
+        }
+    }
+
+    // For testing
+    internal CimmeriaSearchService(Container container, EmbeddingClient embeddingClient, SearchClient? searchClient)
+    {
+        _container = container;
+        _embeddingClient = embeddingClient;
+        _searchClient = searchClient;
     }
 
     private async Task<float[]> GetEmbeddingAsync(string text)
@@ -49,7 +72,64 @@ public class CimmeriaSearchService
         return response.Value.ToFloats().ToArray();
     }
 
+    /// <summary>
+    /// Routes to AI Search (hybrid) for cimmeria-server, falls back to Cosmos DB vector search otherwise.
+    /// </summary>
     public async Task<string> SearchAsync(string query, int topK = 8, string? fileType = null, string? source = null)
+    {
+        // Use AI Search hybrid for cimmeria-server when available
+        if (_searchClient != null && (source == null || source == "cimmeria-server"))
+        {
+            return await HybridSearchAsync(query, topK, fileType, source);
+        }
+
+        return await CosmosVectorSearchAsync(query, topK, fileType, source);
+    }
+
+    private async Task<string> HybridSearchAsync(string query, int topK, string? fileType, string? source)
+    {
+        var embedding = await GetEmbeddingAsync(query);
+
+        var searchOptions = new SearchOptions
+        {
+            Size = topK,
+            Select = { "id", "content", "file_path", "file_type", "chunk_index", "source_project" },
+            VectorSearch = new()
+            {
+                Queries =
+                {
+                    new VectorizedQuery(embedding)
+                    {
+                        KNearestNeighborsCount = topK,
+                        Fields = { "embedding" }
+                    }
+                }
+            }
+        };
+
+        if (!string.IsNullOrEmpty(fileType))
+            searchOptions.Filter = $"file_type eq '{fileType}'";
+
+        var response = await _searchClient!.SearchAsync<SearchDocument>(query, searchOptions);
+        var items = new List<object>();
+
+        await foreach (var result in response.Value.GetResultsAsync())
+        {
+            items.Add(new
+            {
+                file_path = result.Document.GetString("file_path"),
+                file_type = result.Document.GetString("file_type"),
+                content = result.Document.GetString("content"),
+                chunk_index = result.Document.TryGetValue("chunk_index", out var ci) ? (int)(long)ci : 0,
+                source_project = result.Document.GetString("source_project"),
+                score = result.Score
+            });
+        }
+
+        return JsonSerializer.Serialize(new { results = items, count = items.Count, search_mode = "hybrid" }, JsonOptions);
+    }
+
+    private async Task<string> CosmosVectorSearchAsync(string query, int topK, string? fileType, string? source)
     {
         var embedding = await GetEmbeddingAsync(query);
 
@@ -88,7 +168,7 @@ public class CimmeriaSearchService
             }
         }
 
-        return JsonSerializer.Serialize(new { results = items, count = items.Count }, JsonOptions);
+        return JsonSerializer.Serialize(new { results = items, count = items.Count, search_mode = "vector" }, JsonOptions);
     }
 
     public async Task<string> ListFilesAsync(string? fileType = null, string? source = null)
@@ -157,26 +237,61 @@ public class CimmeriaSearchService
 
     public async Task<string> FindSimilarCodeAsync(string codeSnippet, int topK = 5, string? source = null)
     {
-        var embedding = await GetEmbeddingAsync(codeSnippet);
+        // Use AI Search for cimmeria-server when available
+        if (_searchClient != null && (source == null || source == "cimmeria-server"))
+        {
+            var embedding = await GetEmbeddingAsync(codeSnippet);
+            var searchOptions = new SearchOptions
+            {
+                Size = topK,
+                Select = { "id", "content", "file_path", "file_type", "chunk_index", "source_project" },
+                VectorSearch = new()
+                {
+                    Queries =
+                    {
+                        new VectorizedQuery(embedding)
+                        {
+                            KNearestNeighborsCount = topK,
+                            Fields = { "embedding" }
+                        }
+                    }
+                }
+            };
 
+            var response = await _searchClient.SearchAsync<SearchDocument>(null, searchOptions);
+            var items = new List<object>();
+            await foreach (var result in response.Value.GetResultsAsync())
+            {
+                items.Add(new
+                {
+                    file_path = result.Document.GetString("file_path"),
+                    file_type = result.Document.GetString("file_type"),
+                    content = result.Document.GetString("content"),
+                    chunk_index = result.Document.TryGetValue("chunk_index", out var ci) ? (int)(long)ci : 0,
+                    source_project = result.Document.GetString("source_project"),
+                    score = result.Score
+                });
+            }
+            return JsonSerializer.Serialize(new { similar = items, count = items.Count }, JsonOptions);
+        }
+
+        // Cosmos DB fallback
+        var emb = await GetEmbeddingAsync(codeSnippet);
         var whereClause = !string.IsNullOrEmpty(source) ? $"WHERE c.source_project = '{source}'" : "";
-
         var sql = $"SELECT TOP {topK} c.file_path, c.file_type, c.content, c.chunk_index, c.source_project, " +
                   $"VectorDistance(c.embedding, @embedding) AS distance " +
                   $"FROM c {whereClause} " +
                   $"ORDER BY VectorDistance(c.embedding, @embedding)";
+        var queryDef = new QueryDefinition(sql).WithParameter("@embedding", emb);
 
-        var queryDef = new QueryDefinition(sql)
-            .WithParameter("@embedding", embedding);
-
-        var items = new List<object>();
+        var cosmosItems = new List<object>();
         using var iterator = _container.GetItemQueryIterator<dynamic>(queryDef);
         while (iterator.HasMoreResults)
         {
             var response = await iterator.ReadNextAsync();
             foreach (var item in response)
             {
-                items.Add(new
+                cosmosItems.Add(new
                 {
                     file_path = (string)item.file_path,
                     file_type = (string)item.file_type,
@@ -187,8 +302,7 @@ public class CimmeriaSearchService
                 });
             }
         }
-
-        return JsonSerializer.Serialize(new { similar = items, count = items.Count }, JsonOptions);
+        return JsonSerializer.Serialize(new { similar = cosmosItems, count = cosmosItems.Count }, JsonOptions);
     }
 
     public async Task<string> GetProjectOverviewAsync(string? source = null)
@@ -262,12 +376,54 @@ public class CimmeriaSearchService
 
     public async Task<string> SearchByDirectoryAsync(string pathPrefix, string query, int topK = 8, string? source = null)
     {
-        var embedding = await GetEmbeddingAsync(query);
+        // Use AI Search hybrid for cimmeria-server with directory filter
+        if (_searchClient != null && (source == null || source == "cimmeria-server"))
+        {
+            var embedding = await GetEmbeddingAsync(query);
+            var filter = $"file_path ge '{pathPrefix}' and file_path lt '{pathPrefix}~'";
+            if (!string.IsNullOrEmpty(source))
+                filter += $" and source_project eq '{source}'";
 
+            var searchOptions = new SearchOptions
+            {
+                Size = topK,
+                Filter = filter,
+                Select = { "id", "content", "file_path", "file_type", "chunk_index", "source_project" },
+                VectorSearch = new()
+                {
+                    Queries =
+                    {
+                        new VectorizedQuery(embedding)
+                        {
+                            KNearestNeighborsCount = topK,
+                            Fields = { "embedding" }
+                        }
+                    }
+                }
+            };
+
+            var response = await _searchClient.SearchAsync<SearchDocument>(query, searchOptions);
+            var items = new List<object>();
+            await foreach (var result in response.Value.GetResultsAsync())
+            {
+                items.Add(new
+                {
+                    file_path = result.Document.GetString("file_path"),
+                    file_type = result.Document.GetString("file_type"),
+                    content = result.Document.GetString("content"),
+                    chunk_index = result.Document.TryGetValue("chunk_index", out var ci) ? (int)(long)ci : 0,
+                    source_project = result.Document.GetString("source_project"),
+                    score = result.Score
+                });
+            }
+            return JsonSerializer.Serialize(new { results = items, count = items.Count, directory = pathPrefix, search_mode = "hybrid" }, JsonOptions);
+        }
+
+        // Cosmos DB fallback
+        var emb = await GetEmbeddingAsync(query);
         var filters = new List<string> { "STARTSWITH(c.file_path, @prefix)" };
         if (!string.IsNullOrEmpty(source))
             filters.Add($"c.source_project = '{source}'");
-
         var whereClause = "WHERE " + string.Join(" AND ", filters);
 
         var sql = $"SELECT TOP {topK} c.file_path, c.file_type, c.content, c.chunk_index, c.source_project, " +
@@ -276,17 +432,17 @@ public class CimmeriaSearchService
                   $"ORDER BY VectorDistance(c.embedding, @embedding)";
 
         var queryDef = new QueryDefinition(sql)
-            .WithParameter("@embedding", embedding)
+            .WithParameter("@embedding", emb)
             .WithParameter("@prefix", pathPrefix);
 
-        var items = new List<object>();
+        var cosmosItems = new List<object>();
         using var iterator = _container.GetItemQueryIterator<dynamic>(queryDef);
         while (iterator.HasMoreResults)
         {
             var response = await iterator.ReadNextAsync();
             foreach (var item in response)
             {
-                items.Add(new
+                cosmosItems.Add(new
                 {
                     file_path = (string)item.file_path,
                     file_type = (string)item.file_type,
@@ -297,7 +453,6 @@ public class CimmeriaSearchService
                 });
             }
         }
-
-        return JsonSerializer.Serialize(new { results = items, count = items.Count, directory = pathPrefix }, JsonOptions);
+        return JsonSerializer.Serialize(new { results = cosmosItems, count = cosmosItems.Count, directory = pathPrefix, search_mode = "vector" }, JsonOptions);
     }
 }
