@@ -32,6 +32,21 @@ param deploySearch bool = true
 @description('Enable Cosmos DB free tier (limited to 1 per subscription)')
 param cosmosFreeTier bool = false
 
+@description('Azure Key Vault name (globally unique)')
+param keyVaultName string = 'cimmeria-mcp-kv'
+
+@description('Log Analytics Workspace name')
+param logAnalyticsName string = 'cimmeria-mcp-logs'
+
+@description('Application Insights name')
+param appInsightsName string = 'cimmeria-mcp-insights'
+
+@description('Azure App Configuration name (globally unique)')
+param appConfigName string = 'cimmeria-mcp-config'
+
+@description('Deploy free-tier showcase resources (Key Vault, App Config, Monitoring)')
+param deployShowcase bool = true
+
 // =============================================================================
 // Existing Resources
 // =============================================================================
@@ -250,6 +265,109 @@ resource search 'Microsoft.Search/searchServices@2024-06-01-preview' = if (deplo
 }
 
 // =============================================================================
+// Key Vault (Standard tier — ~$0.03/10K operations)
+// =============================================================================
+
+resource vault 'Microsoft.KeyVault/vaults@2023-07-01' = if (deployShowcase) {
+  name: keyVaultName
+  location: computeLocation
+  properties: {
+    tenantId: subscription().tenantId
+    sku: {
+      family: 'A'
+      name: 'standard'
+    }
+    enableRbacAuthorization: true
+    enableSoftDelete: true
+    softDeleteRetentionInDays: 7
+    enablePurgeProtection: false
+  }
+}
+
+resource openaiKeySecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = if (deployShowcase) {
+  parent: vault
+  name: 'openai-key'
+  properties: {
+    value: openai.listKeys().key1
+  }
+}
+
+resource cosmosKeySecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = if (deployShowcase) {
+  parent: vault
+  name: 'cosmos-key'
+  properties: {
+    value: cosmos.listKeys().primaryMasterKey
+  }
+}
+
+resource searchKeySecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = if (deployShowcase && deploySearch) {
+  parent: vault
+  name: 'search-key'
+  properties: {
+    value: search.listAdminKeys().primaryKey
+  }
+}
+
+// =============================================================================
+// Log Analytics Workspace (5 GB/month free ingestion)
+// =============================================================================
+
+resource logs 'Microsoft.OperationalInsights/workspaces@2023-09-01' = if (deployShowcase) {
+  name: logAnalyticsName
+  location: computeLocation
+  properties: {
+    sku: {
+      name: 'PerGB2018'
+    }
+    retentionInDays: 30
+  }
+}
+
+// =============================================================================
+// Application Insights (5 GB/month free ingestion)
+// =============================================================================
+
+resource insights 'Microsoft.Insights/components@2020-02-02' = if (deployShowcase) {
+  name: appInsightsName
+  location: computeLocation
+  kind: 'web'
+  properties: {
+    Application_Type: 'web'
+    WorkspaceResourceId: logs.id
+  }
+}
+
+// =============================================================================
+// App Configuration (Free tier — 10 MB storage, 1,000 requests/day)
+// =============================================================================
+
+resource appConfig 'Microsoft.AppConfiguration/configurationStores@2023-03-01' = if (deployShowcase) {
+  name: appConfigName
+  location: computeLocation
+  sku: {
+    name: 'free'
+  }
+}
+
+// =============================================================================
+// Diagnostic Settings
+// =============================================================================
+
+resource cosmosDiagnostics 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = if (deployShowcase) {
+  name: 'cosmos-diagnostics'
+  scope: cosmos
+  properties: {
+    workspaceId: logs.id
+    metrics: [
+      {
+        category: 'Requests'
+        enabled: true
+      }
+    ]
+  }
+}
+
+// =============================================================================
 // Service Plan + Function App
 // =============================================================================
 
@@ -267,6 +385,9 @@ resource func 'Microsoft.Web/sites@2024-04-01' = {
   name: functionAppName
   location: computeLocation
   kind: 'functionapp'
+  identity: {
+    type: 'SystemAssigned'
+  }
   properties: {
     serverFarmId: plan.id
     siteConfig: {
@@ -290,12 +411,31 @@ resource func 'Microsoft.Web/sites@2024-04-01' = {
             value: openai.properties.endpoint
           }
           {
-            name: 'OPENAI_KEY'
-            value: openai.listKeys().key1
-          }
-          {
             name: 'COSMOS_ENDPOINT'
             value: cosmos.properties.documentEndpoint
+          }
+        ],
+        deployShowcase ? [
+          {
+            name: 'OPENAI_KEY'
+            value: '@Microsoft.KeyVault(VaultName=${vault.name};SecretName=openai-key)'
+          }
+          {
+            name: 'COSMOS_KEY'
+            value: '@Microsoft.KeyVault(VaultName=${vault.name};SecretName=cosmos-key)'
+          }
+          {
+            name: 'APPINSIGHTS_INSTRUMENTATIONKEY'
+            value: insights.properties.InstrumentationKey
+          }
+          {
+            name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
+            value: insights.properties.ConnectionString
+          }
+        ] : [
+          {
+            name: 'OPENAI_KEY'
+            value: openai.listKeys().key1
           }
           {
             name: 'COSMOS_KEY'
@@ -309,11 +449,54 @@ resource func 'Microsoft.Web/sites@2024-04-01' = {
           }
           {
             name: 'SEARCH_KEY'
-            value: search.listAdminKeys().primaryKey
+            value: deployShowcase ? '@Microsoft.KeyVault(VaultName=${vault.name};SecretName=search-key)' : search.listAdminKeys().primaryKey
           }
         ] : []
       )
     }
+  }
+}
+
+// Function App diagnostic settings
+resource funcDiagnostics 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = if (deployShowcase) {
+  name: 'func-diagnostics'
+  scope: func
+  properties: {
+    workspaceId: logs.id
+    logs: [
+      {
+        category: 'FunctionAppLogs'
+        enabled: true
+      }
+    ]
+    metrics: [
+      {
+        category: 'AllMetrics'
+        enabled: true
+      }
+    ]
+  }
+}
+
+// RBAC: Function App → Key Vault Secrets User
+resource funcKvRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployShowcase) {
+  name: guid(vault.id, func.id, '4633458b-17de-408a-b874-0445c86b69e6')
+  scope: vault
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '4633458b-17de-408a-b874-0445c86b69e6')
+    principalId: func.identity.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+// RBAC: Function App → App Configuration Data Reader
+resource funcAppConfigRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployShowcase) {
+  name: guid(appConfig.id, func.id, '516239f1-63e1-4d78-a4de-a74fb236a071')
+  scope: appConfig
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '516239f1-63e1-4d78-a4de-a74fb236a071')
+    principalId: func.identity.principalId
+    principalType: 'ServicePrincipal'
   }
 }
 
@@ -327,3 +510,6 @@ output mcpEndpoint string = 'https://${func.properties.defaultHostName}/runtime/
 output openaiEndpoint string = openai.properties.endpoint
 output cosmosEndpoint string = cosmos.properties.documentEndpoint
 output searchEndpoint string = deploySearch ? 'https://${search.name}.search.windows.net' : ''
+output keyVaultUri string = deployShowcase ? vault.properties.vaultUri : ''
+output appConfigEndpoint string = deployShowcase ? appConfig.properties.endpoint : ''
+output functionAppPrincipalId string = func.identity.principalId

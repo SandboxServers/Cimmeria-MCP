@@ -74,3 +74,37 @@ variable "cosmos_free_tier" {
   type        = bool
   default     = false
 }
+
+# =============================================================================
+# Free-tier showcase resources
+# =============================================================================
+
+variable "key_vault_name" {
+  description = "Azure Key Vault name (globally unique)"
+  type        = string
+  default     = "cimmeria-mcp-kv"
+}
+
+variable "log_analytics_name" {
+  description = "Log Analytics Workspace name"
+  type        = string
+  default     = "cimmeria-mcp-logs"
+}
+
+variable "app_insights_name" {
+  description = "Application Insights name"
+  type        = string
+  default     = "cimmeria-mcp-insights"
+}
+
+variable "app_config_name" {
+  description = "Azure App Configuration name (globally unique)"
+  type        = string
+  default     = "cimmeria-mcp-config"
+}
+
+variable "deploy_showcase" {
+  description = "Deploy free-tier showcase resources (Key Vault, App Config, Monitoring)"
+  type        = bool
+  default     = true
+}

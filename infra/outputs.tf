@@ -23,3 +23,25 @@ output "cosmos_endpoint" {
 output "search_endpoint" {
   value = var.deploy_search ? "https://${azurerm_search_service.search[0].name}.search.windows.net" : ""
 }
+
+output "key_vault_uri" {
+  value = var.deploy_showcase ? azurerm_key_vault.vault[0].vault_uri : ""
+}
+
+output "app_config_endpoint" {
+  value = var.deploy_showcase ? azurerm_app_configuration.config[0].endpoint : ""
+}
+
+output "app_insights_connection_string" {
+  value     = var.deploy_showcase ? azurerm_application_insights.insights[0].connection_string : ""
+  sensitive = true
+}
+
+output "log_analytics_workspace_id" {
+  value = var.deploy_showcase ? azurerm_log_analytics_workspace.logs[0].workspace_id : ""
+}
+
+output "function_app_principal_id" {
+  value       = azurerm_windows_function_app.func.identity[0].principal_id
+  description = "System-assigned managed identity principal ID"
+}

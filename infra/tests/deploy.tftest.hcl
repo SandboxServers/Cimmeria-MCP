@@ -12,6 +12,11 @@ variables {
   deploy_search         = false
   create_resource_group = true
   cosmos_free_tier      = false
+  key_vault_name        = "cimmeria-tf-kv"
+  log_analytics_name    = "cimmeria-tf-logs"
+  app_insights_name     = "cimmeria-tf-insights"
+  app_config_name       = "cimmeria-tf-config"
+  deploy_showcase       = true
 }
 
 run "validate_plan" {
@@ -54,5 +59,20 @@ run "deploy_all_resources" {
   assert {
     condition     = output.search_endpoint == ""
     error_message = "Search endpoint should be empty when deploy_search=false"
+  }
+
+  assert {
+    condition     = output.key_vault_uri != ""
+    error_message = "Key Vault URI should not be empty when deploy_showcase=true"
+  }
+
+  assert {
+    condition     = output.app_config_endpoint != ""
+    error_message = "App Config endpoint should not be empty when deploy_showcase=true"
+  }
+
+  assert {
+    condition     = output.function_app_principal_id != ""
+    error_message = "Function App should have a managed identity"
   }
 }

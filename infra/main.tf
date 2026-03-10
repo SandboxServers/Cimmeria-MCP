@@ -241,6 +241,134 @@ resource "azurerm_search_service" "search" {
 }
 
 # =============================================================================
+# Key Vault (Standard tier — ~$0.03/10K operations for secrets)
+# =============================================================================
+
+data "azurerm_client_config" "current" {}
+
+resource "azurerm_key_vault" "vault" {
+  count                      = var.deploy_showcase ? 1 : 0
+  name                       = var.key_vault_name
+  location                   = local.rg_location
+  resource_group_name        = local.rg_name
+  tenant_id                  = data.azurerm_client_config.current.tenant_id
+  sku_name                   = "standard"
+  soft_delete_retention_days = 7
+  purge_protection_enabled   = false
+  enable_rbac_authorization  = true
+}
+
+# Deployer (Terraform) gets Key Vault Administrator
+resource "azurerm_role_assignment" "deployer_kv_admin" {
+  count                = var.deploy_showcase ? 1 : 0
+  scope                = azurerm_key_vault.vault[0].id
+  role_definition_name = "Key Vault Administrator"
+  principal_id         = data.azurerm_client_config.current.object_id
+}
+
+# Store service keys in Key Vault
+resource "azurerm_key_vault_secret" "openai_key" {
+  count        = var.deploy_showcase ? 1 : 0
+  name         = "openai-key"
+  value        = azurerm_cognitive_account.openai.primary_access_key
+  key_vault_id = azurerm_key_vault.vault[0].id
+  depends_on   = [azurerm_role_assignment.deployer_kv_admin]
+}
+
+resource "azurerm_key_vault_secret" "cosmos_key" {
+  count        = var.deploy_showcase ? 1 : 0
+  name         = "cosmos-key"
+  value        = azurerm_cosmosdb_account.cosmos.primary_key
+  key_vault_id = azurerm_key_vault.vault[0].id
+  depends_on   = [azurerm_role_assignment.deployer_kv_admin]
+}
+
+resource "azurerm_key_vault_secret" "search_key" {
+  count        = var.deploy_search && var.deploy_showcase ? 1 : 0
+  name         = "search-key"
+  value        = azurerm_search_service.search[0].primary_key
+  key_vault_id = azurerm_key_vault.vault[0].id
+  depends_on   = [azurerm_role_assignment.deployer_kv_admin]
+}
+
+# =============================================================================
+# Log Analytics Workspace (5 GB/month free ingestion)
+# =============================================================================
+
+resource "azurerm_log_analytics_workspace" "logs" {
+  count               = var.deploy_showcase ? 1 : 0
+  name                = var.log_analytics_name
+  location            = local.rg_location
+  resource_group_name = local.rg_name
+  sku                 = "PerGB2018"
+  retention_in_days   = 30
+}
+
+# =============================================================================
+# Application Insights (5 GB/month free ingestion)
+# =============================================================================
+
+resource "azurerm_application_insights" "insights" {
+  count               = var.deploy_showcase ? 1 : 0
+  name                = var.app_insights_name
+  location            = local.rg_location
+  resource_group_name = local.rg_name
+  workspace_id        = azurerm_log_analytics_workspace.logs[0].id
+  application_type    = "web"
+}
+
+# =============================================================================
+# App Configuration (Free tier — 10 MB storage, 1,000 requests/day)
+# =============================================================================
+
+resource "azurerm_app_configuration" "config" {
+  count               = var.deploy_showcase ? 1 : 0
+  name                = var.app_config_name
+  location            = local.rg_location
+  resource_group_name = local.rg_name
+  sku                 = "free"
+}
+
+resource "azurerm_role_assignment" "deployer_appconfig" {
+  count                = var.deploy_showcase ? 1 : 0
+  scope                = azurerm_app_configuration.config[0].id
+  role_definition_name = "App Configuration Data Owner"
+  principal_id         = data.azurerm_client_config.current.object_id
+}
+
+# =============================================================================
+# Diagnostic Settings (log to Log Analytics)
+# =============================================================================
+
+resource "azurerm_monitor_diagnostic_setting" "cosmos_diagnostics" {
+  count                      = var.deploy_showcase ? 1 : 0
+  name                       = "cosmos-diagnostics"
+  target_resource_id         = azurerm_cosmosdb_account.cosmos.id
+  log_analytics_workspace_id = azurerm_log_analytics_workspace.logs[0].id
+
+  metric {
+    category = "Requests"
+    enabled  = true
+  }
+}
+
+resource "azurerm_monitor_diagnostic_setting" "func_diagnostics" {
+  count                      = var.deploy_showcase ? 1 : 0
+  name                       = "func-diagnostics"
+  target_resource_id         = azurerm_windows_function_app.func.id
+  log_analytics_workspace_id = azurerm_log_analytics_workspace.logs[0].id
+
+  enabled_log {
+    category = "FunctionAppLogs"
+  }
+
+  metric {
+    category = "AllMetrics"
+    enabled  = true
+  }
+}
+
+# =============================================================================
 # Service Plan + Function App
 # =============================================================================
 
@@ -264,6 +392,10 @@ resource "azurerm_windows_function_app" "func" {
   ftp_publish_basic_authentication_enabled      = false
   webdeploy_publish_basic_authentication_enabled = false
 
+  identity {
+    type = "SystemAssigned"
+  }
+
   site_config {
     ftps_state        = "FtpsOnly"
     http2_enabled     = true
@@ -278,15 +410,26 @@ resource "azurerm_windows_function_app" "func" {
   app_settings = merge(
     {
       "OPENAI_ENDPOINT"                        = azurerm_cognitive_account.openai.endpoint
-      "OPENAI_KEY"                             = azurerm_cognitive_account.openai.primary_access_key
       "COSMOS_ENDPOINT"                        = azurerm_cosmosdb_account.cosmos.endpoint
-      "COSMOS_KEY"                             = azurerm_cosmosdb_account.cosmos.primary_key
       "WEBSITE_RUN_FROM_PACKAGE"               = "1"
       "WEBSITE_USE_PLACEHOLDER_DOTNETISOLATED" = "1"
     },
+    # Key Vault references for secrets (when showcase enabled), direct keys otherwise
+    var.deploy_showcase ? {
+      "OPENAI_KEY" = "@Microsoft.KeyVault(VaultName=${azurerm_key_vault.vault[0].name};SecretName=openai-key)"
+      "COSMOS_KEY" = "@Microsoft.KeyVault(VaultName=${azurerm_key_vault.vault[0].name};SecretName=cosmos-key)"
+    } : {
+      "OPENAI_KEY" = azurerm_cognitive_account.openai.primary_access_key
+      "COSMOS_KEY" = azurerm_cosmosdb_account.cosmos.primary_key
+    },
     var.deploy_search ? {
       "SEARCH_ENDPOINT" = "https://${azurerm_search_service.search[0].name}.search.windows.net"
-      "SEARCH_KEY"      = azurerm_search_service.search[0].primary_key
+      "SEARCH_KEY"      = var.deploy_showcase ? "@Microsoft.KeyVault(VaultName=${azurerm_key_vault.vault[0].name};SecretName=search-key)" : azurerm_search_service.search[0].primary_key
+    } : {},
+    # Application Insights (when showcase enabled)
+    var.deploy_showcase ? {
+      "APPINSIGHTS_INSTRUMENTATIONKEY"       = azurerm_application_insights.insights[0].instrumentation_key
+      "APPLICATIONINSIGHTS_CONNECTION_STRING" = azurerm_application_insights.insights[0].connection_string
     } : {}
   )
 
@@ -296,4 +439,20 @@ resource "azurerm_windows_function_app" "func" {
       site_config[0].application_insights_key,
     ]
   }
+}
+
+# Function App → Key Vault Secrets User (read secrets via Key Vault references)
+resource "azurerm_role_assignment" "func_kv_reader" {
+  count                = var.deploy_showcase ? 1 : 0
+  scope                = azurerm_key_vault.vault[0].id
+  role_definition_name = "Key Vault Secrets User"
+  principal_id         = azurerm_windows_function_app.func.identity[0].principal_id
+}
+
+# Function App → App Configuration Data Reader
+resource "azurerm_role_assignment" "func_appconfig_reader" {
+  count                = var.deploy_showcase ? 1 : 0
+  scope                = azurerm_app_configuration.config[0].id
+  role_definition_name = "App Configuration Data Reader"
+  principal_id         = azurerm_windows_function_app.func.identity[0].principal_id
 }
