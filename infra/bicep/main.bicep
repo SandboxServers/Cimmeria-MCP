@@ -44,6 +44,9 @@ param appInsightsName string = 'cimmeria-mcp-insights'
 @description('Azure App Configuration name (globally unique)')
 param appConfigName string = 'cimmeria-mcp-config'
 
+@description('Azure Static Web App name')
+param staticSiteName string = 'cimmeria-mcp-site'
+
 @description('Deploy free-tier showcase resources (Key Vault, App Config, Monitoring)')
 param deployShowcase bool = true
 
@@ -368,6 +371,20 @@ resource cosmosDiagnostics 'Microsoft.Insights/diagnosticSettings@2021-05-01-pre
 }
 
 // =============================================================================
+// Static Web App (Free tier — 100 GB bandwidth/month)
+// =============================================================================
+
+resource staticSite 'Microsoft.Web/staticSites@2023-12-01' = if (deployShowcase) {
+  name: staticSiteName
+  location: computeLocation
+  sku: {
+    name: 'Free'
+    tier: 'Free'
+  }
+  properties: {}
+}
+
+// =============================================================================
 // Service Plan + Function App
 // =============================================================================
 
@@ -513,3 +530,4 @@ output searchEndpoint string = deploySearch ? 'https://${search.name}.search.win
 output keyVaultUri string = deployShowcase ? vault.properties.vaultUri : ''
 output appConfigEndpoint string = deployShowcase ? appConfig.properties.endpoint : ''
 output functionAppPrincipalId string = func.identity.principalId
+output staticSiteUrl string = deployShowcase ? 'https://${staticSite.properties.defaultHostname}' : ''

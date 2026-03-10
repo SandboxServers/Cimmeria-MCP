@@ -45,3 +45,7 @@ output "function_app_principal_id" {
   value       = azurerm_windows_function_app.func.identity[0].principal_id
   description = "System-assigned managed identity principal ID"
 }
+
+output "static_site_url" {
+  value = var.deploy_showcase ? "https://${azurerm_static_web_app.site[0].default_host_name}" : ""
+}

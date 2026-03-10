@@ -103,6 +103,12 @@ variable "app_config_name" {
   default     = "cimmeria-mcp-config"
 }
 
+variable "static_site_name" {
+  description = "Azure Static Web App name"
+  type        = string
+  default     = "cimmeria-mcp-site"
+}
+
 variable "deploy_showcase" {
   description = "Deploy free-tier showcase resources (Key Vault, App Config, Monitoring)"
   type        = bool

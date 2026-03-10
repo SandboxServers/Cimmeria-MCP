@@ -14,4 +14,5 @@ param keyVaultName = 'cimmeria-bicep-kv'
 param logAnalyticsName = 'cimmeria-bicep-logs'
 param appInsightsName = 'cimmeria-bicep-insights'
 param appConfigName = 'cimmeria-bicep-config'
+param staticSiteName = 'cimmeria-bicep-site'
 param deployShowcase = true

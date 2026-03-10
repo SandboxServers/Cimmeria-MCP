@@ -369,6 +369,19 @@ resource "azurerm_monitor_diagnostic_setting" "func_diagnostics" {
 }
 
 # =============================================================================
+# Static Web App (Free tier — 100 GB bandwidth/month)
+# =============================================================================
+
+resource "azurerm_static_web_app" "site" {
+  count               = var.deploy_showcase ? 1 : 0
+  name                = var.static_site_name
+  location            = local.rg_location
+  resource_group_name = local.rg_name
+  sku_tier            = "Free"
+  sku_size            = "Free"
+}
+
+# =============================================================================
 # Service Plan + Function App
 # =============================================================================
 

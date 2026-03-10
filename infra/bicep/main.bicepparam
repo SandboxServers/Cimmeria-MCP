@@ -14,4 +14,5 @@ param keyVaultName = 'cimmeria-mcp-kv'
 param logAnalyticsName = 'cimmeria-mcp-logs'
 param appInsightsName = 'cimmeria-mcp-insights'
 param appConfigName = 'cimmeria-mcp-config'
+param staticSiteName = 'cimmeria-mcp-site'
 param deployShowcase = true

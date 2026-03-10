@@ -16,6 +16,7 @@ variables {
   log_analytics_name    = "cimmeria-tf-logs"
   app_insights_name     = "cimmeria-tf-insights"
   app_config_name       = "cimmeria-tf-config"
+  static_site_name      = "cimmeria-tf-site"
   deploy_showcase       = true
 }
 

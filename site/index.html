@@ -1,0 +1,650 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cimmeria MCP Server</title>
+  <meta name="description" content="AI-powered codebase intelligence for the Cimmeria Stargate Worlds server emulator. 34 MCP tools across RAG search, knowledge graph, and GPT-5.4 AI skills.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0a0a0f;
+      --bg-card: #12121a;
+      --bg-card-hover: #1a1a28;
+      --border: #1e1e2e;
+      --text: #e2e2ef;
+      --text-dim: #8888a0;
+      --accent: #6366f1;
+      --accent-glow: rgba(99, 102, 241, 0.3);
+      --green: #22c55e;
+      --amber: #f59e0b;
+      --cyan: #06b6d4;
+      --rose: #f43f5e;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      overflow-x: hidden;
+    }
+
+    .hero {
+      position: relative;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem;
+      text-align: center;
+    }
+
+    .hero::before {
+      content: '';
+      position: absolute;
+      top: -50%;
+      left: -50%;
+      width: 200%;
+      height: 200%;
+      background: radial-gradient(circle at 50% 50%, var(--accent-glow) 0%, transparent 50%);
+      animation: pulse 8s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 0.3; transform: scale(1); }
+      50% { opacity: 0.6; transform: scale(1.1); }
+    }
+
+    .hero-content { position: relative; z-index: 1; max-width: 900px; }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.4rem 1rem;
+      background: rgba(99, 102, 241, 0.1);
+      border: 1px solid rgba(99, 102, 241, 0.3);
+      border-radius: 999px;
+      font-size: 0.85rem;
+      font-weight: 500;
+      color: var(--accent);
+      margin-bottom: 1.5rem;
+    }
+
+    .badge .dot {
+      width: 8px;
+      height: 8px;
+      background: var(--green);
+      border-radius: 50%;
+      animation: blink 2s ease-in-out infinite;
+    }
+
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+
+    h1 {
+      font-size: clamp(2.5rem, 6vw, 4.5rem);
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      line-height: 1.1;
+      margin-bottom: 1.5rem;
+    }
+
+    h1 .gradient {
+      background: linear-gradient(135deg, var(--accent) 0%, var(--cyan) 50%, var(--green) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .subtitle {
+      font-size: 1.2rem;
+      color: var(--text-dim);
+      max-width: 650px;
+      margin: 0 auto 2rem;
+    }
+
+    .stats-row {
+      display: flex;
+      gap: 2rem;
+      justify-content: center;
+      flex-wrap: wrap;
+      margin-bottom: 2.5rem;
+    }
+
+    .stat {
+      text-align: center;
+    }
+
+    .stat-value {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 2rem;
+      font-weight: 700;
+      color: var(--accent);
+    }
+
+    .stat-label {
+      font-size: 0.8rem;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+    }
+
+    .cta-row {
+      display: flex;
+      gap: 1rem;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.75rem 1.5rem;
+      border-radius: 0.5rem;
+      font-weight: 600;
+      font-size: 0.95rem;
+      text-decoration: none;
+      transition: all 0.2s;
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: white;
+      border: 1px solid var(--accent);
+    }
+
+    .btn-primary:hover {
+      background: #5558e6;
+      box-shadow: 0 0 20px var(--accent-glow);
+    }
+
+    .btn-outline {
+      background: transparent;
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+
+    .btn-outline:hover {
+      border-color: var(--accent);
+      background: rgba(99, 102, 241, 0.05);
+    }
+
+    section {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 5rem 2rem;
+    }
+
+    .section-header {
+      text-align: center;
+      margin-bottom: 3rem;
+    }
+
+    .section-header h2 {
+      font-size: 2rem;
+      font-weight: 700;
+      margin-bottom: 0.75rem;
+    }
+
+    .section-header p {
+      color: var(--text-dim);
+      max-width: 600px;
+      margin: 0 auto;
+    }
+
+    .architecture {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 1rem;
+      padding: 2rem;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.85rem;
+      line-height: 1.8;
+      overflow-x: auto;
+      white-space: pre;
+      color: var(--text-dim);
+      margin-bottom: 3rem;
+    }
+
+    .architecture .hl-accent { color: var(--accent); }
+    .architecture .hl-cyan { color: var(--cyan); }
+    .architecture .hl-green { color: var(--green); }
+    .architecture .hl-amber { color: var(--amber); }
+
+    .tools-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+      gap: 1.5rem;
+    }
+
+    .tool-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 0.75rem;
+      padding: 1.5rem;
+      transition: all 0.2s;
+    }
+
+    .tool-card:hover {
+      background: var(--bg-card-hover);
+      border-color: rgba(99, 102, 241, 0.3);
+      transform: translateY(-2px);
+    }
+
+    .tool-card-header {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin-bottom: 1rem;
+    }
+
+    .tool-icon {
+      width: 40px;
+      height: 40px;
+      border-radius: 0.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.2rem;
+      flex-shrink: 0;
+    }
+
+    .tool-icon.search { background: rgba(6, 182, 212, 0.15); color: var(--cyan); }
+    .tool-icon.graph { background: rgba(99, 102, 241, 0.15); color: var(--accent); }
+    .tool-icon.ai { background: rgba(34, 197, 94, 0.15); color: var(--green); }
+
+    .tool-card h3 { font-size: 1.1rem; font-weight: 600; }
+
+    .tool-count {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.75rem;
+      padding: 0.2rem 0.5rem;
+      border-radius: 999px;
+      background: rgba(99, 102, 241, 0.1);
+      color: var(--accent);
+    }
+
+    .tool-card p { color: var(--text-dim); font-size: 0.9rem; margin-bottom: 1rem; }
+
+    .tool-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+    }
+
+    .tool-tag {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.75rem;
+      padding: 0.25rem 0.5rem;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border);
+      border-radius: 0.25rem;
+      color: var(--text-dim);
+    }
+
+    .graph-stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 1rem;
+      margin-top: 2rem;
+    }
+
+    .graph-stat {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 0.5rem;
+      padding: 1rem;
+      text-align: center;
+    }
+
+    .graph-stat .value {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 1.5rem;
+      font-weight: 700;
+    }
+
+    .graph-stat .label {
+      font-size: 0.8rem;
+      color: var(--text-dim);
+    }
+
+    .free-tier {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 1rem;
+    }
+
+    .tier-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 0.75rem;
+      padding: 1.25rem;
+    }
+
+    .tier-card h4 {
+      font-size: 0.95rem;
+      margin-bottom: 0.25rem;
+    }
+
+    .tier-card .price {
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--green);
+      font-weight: 700;
+      font-size: 0.85rem;
+    }
+
+    .tier-card p {
+      color: var(--text-dim);
+      font-size: 0.85rem;
+      margin-top: 0.5rem;
+    }
+
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 2rem;
+      text-align: center;
+      color: var(--text-dim);
+      font-size: 0.85rem;
+    }
+
+    footer a { color: var(--accent); text-decoration: none; }
+    footer a:hover { text-decoration: underline; }
+
+    @media (max-width: 640px) {
+      .stats-row { gap: 1rem; }
+      .tools-grid { grid-template-columns: 1fr; }
+      .architecture { font-size: 0.7rem; }
+    }
+  </style>
+</head>
+<body>
+  <div class="hero">
+    <div class="hero-content">
+      <div class="badge">
+        <span class="dot"></span>
+        MCP Server v2.0
+      </div>
+      <h1>
+        <span class="gradient">Cimmeria</span><br>
+        AI-Powered Codebase Intelligence
+      </h1>
+      <p class="subtitle">
+        34 MCP tools for the Stargate Worlds server emulator. Hybrid RAG search, a 4,800-node knowledge graph, and GPT-5.4 AI skills &mdash; all served over Streamable HTTP from Azure Functions.
+      </p>
+      <div class="stats-row">
+        <div class="stat">
+          <div class="stat-value">34</div>
+          <div class="stat-label">MCP Tools</div>
+        </div>
+        <div class="stat">
+          <div class="stat-value">4,801</div>
+          <div class="stat-label">Graph Vertices</div>
+        </div>
+        <div class="stat">
+          <div class="stat-value">2,622</div>
+          <div class="stat-label">Indexed Chunks</div>
+        </div>
+        <div class="stat">
+          <div class="stat-value">14</div>
+          <div class="stat-label">AI Skills</div>
+        </div>
+      </div>
+      <div class="cta-row">
+        <a href="https://github.com/SandboxServers/Cimmeria-MCP" class="btn btn-primary">
+          View on GitHub
+        </a>
+        <a href="#tools" class="btn btn-outline">
+          Explore Tools
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <section>
+    <div class="section-header">
+      <h2>Architecture</h2>
+      <p>Built on Azure's free and low-cost tiers. Every component earns its place.</p>
+    </div>
+    <div class="architecture"><span class="hl-accent">Claude Code</span> ──HTTP──&gt; <span class="hl-cyan">Azure Functions</span> (.NET 10)
+                     /runtime/webhooks/mcp
+                         │
+           ┌─────────────┼──────────────┬──────────────┐
+           ▼             ▼              ▼              ▼
+    <span class="hl-cyan">Azure AI Search</span>   <span class="hl-green">Cosmos DB</span>     <span class="hl-amber">Azure OpenAI</span>   <span class="hl-accent">Key Vault</span>
+    Hybrid text+vector  Knowledge     text-embedding   Secrets
+    HNSW 505-dim        Graph +       -3-small +       management
+    BM25 ranking        Vector        GPT-5.4          RBAC-based
+    (free tier)         Fallback      AI skills        (standard)
+                        (free tier)
+           │             │              │              │
+           └─────────────┼──────────────┴──────────────┘
+                         ▼
+              <span class="hl-green">Application Insights</span> + <span class="hl-accent">Log Analytics</span>
+              Monitoring &amp; diagnostics (5 GB/month free)</div>
+  </section>
+
+  <section id="tools">
+    <div class="section-header">
+      <h2>34 Tools, 3 Categories</h2>
+      <p>From semantic search to full implementation planning &mdash; every tool Claude Code needs to understand and build on the codebase.</p>
+    </div>
+    <div class="tools-grid">
+      <div class="tool-card">
+        <div class="tool-card-header">
+          <div class="tool-icon search">&#x1F50D;</div>
+          <div>
+            <h3>RAG Search</h3>
+          </div>
+          <span class="tool-count">6 tools</span>
+        </div>
+        <p>Hybrid text + vector search across the entire codebase. Azure AI Search for server code with Cosmos DB vector fallback for client assets and engine code.</p>
+        <div class="tool-list">
+          <span class="tool-tag">search_cimmeria</span>
+          <span class="tool-tag">list_cimmeria_files</span>
+          <span class="tool-tag">get_file_content</span>
+          <span class="tool-tag">find_similar_code</span>
+          <span class="tool-tag">get_project_overview</span>
+          <span class="tool-tag">search_by_directory</span>
+        </div>
+      </div>
+      <div class="tool-card">
+        <div class="tool-card-header">
+          <div class="tool-icon graph">&#x1F578;</div>
+          <div>
+            <h3>Knowledge Graph</h3>
+          </div>
+          <span class="tool-count">14 tools</span>
+        </div>
+        <p>4,801 vertices and 4,340 edges. Entities, methods, properties, inheritance trees, enums, type aliases, game definitions, and implementation coverage.</p>
+        <div class="tool-list">
+          <span class="tool-tag">get_entity_details</span>
+          <span class="tool-tag">get_inheritance_tree</span>
+          <span class="tool-tag">get_graph_overview</span>
+          <span class="tool-tag">get_game_system_details</span>
+          <span class="tool-tag">get_replicated_properties</span>
+          <span class="tool-tag">get_method_call_chain</span>
+          <span class="tool-tag">traverse_graph</span>
+          <span class="tool-tag">lookup_enum</span>
+          <span class="tool-tag">resolve_type</span>
+          <span class="tool-tag">lookup_game_def</span>
+          <span class="tool-tag">get_implementation_status</span>
+          <span class="tool-tag">cross_reference</span>
+          <span class="tool-tag">get_entity_protocol</span>
+          <span class="tool-tag">lookup_bigworld_api</span>
+        </div>
+      </div>
+      <div class="tool-card">
+        <div class="tool-card-header">
+          <div class="tool-icon ai">&#x2728;</div>
+          <div>
+            <h3>AI Skills</h3>
+          </div>
+          <span class="tool-count">14 tools</span>
+        </div>
+        <p>GPT-5.4 powered analysis combining RAG search and knowledge graph context. Code generation, translation, review, troubleshooting, and game design analysis.</p>
+        <div class="tool-list">
+          <span class="tool-tag">explain_cimmeria</span>
+          <span class="tool-tag">generate_entity_stub</span>
+          <span class="tool-tag">translate_python_to_rust</span>
+          <span class="tool-tag">generate_tests</span>
+          <span class="tool-tag">troubleshoot</span>
+          <span class="tool-tag">review_code</span>
+          <span class="tool-tag">check_compatibility</span>
+          <span class="tool-tag">analyze_impact</span>
+          <span class="tool-tag">plan_implementation</span>
+          <span class="tool-tag">whats_next</span>
+          <span class="tool-tag">analyze_protocol</span>
+          <span class="tool-tag">trace_sequence</span>
+          <span class="tool-tag">generate_diagram</span>
+          <span class="tool-tag">decode_game_design</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-header">
+      <h2>Knowledge Graph</h2>
+      <p>A structured map of every entity, method, property, and type in the Stargate Worlds server.</p>
+    </div>
+    <div class="graph-stats">
+      <div class="graph-stat">
+        <div class="value" style="color: var(--accent)">1,276</div>
+        <div class="label">Constants</div>
+      </div>
+      <div class="graph-stat">
+        <div class="value" style="color: var(--cyan)">856</div>
+        <div class="label">Script Methods</div>
+      </div>
+      <div class="graph-stat">
+        <div class="value" style="color: var(--green)">815</div>
+        <div class="label">.def Methods</div>
+      </div>
+      <div class="graph-stat">
+        <div class="value" style="color: var(--amber)">595</div>
+        <div class="label">C++ Methods</div>
+      </div>
+      <div class="graph-stat">
+        <div class="value" style="color: var(--rose)">436</div>
+        <div class="label">Properties</div>
+      </div>
+      <div class="graph-stat">
+        <div class="value" style="color: var(--text-dim)">269</div>
+        <div class="label">Source Files</div>
+      </div>
+      <div class="graph-stat">
+        <div class="value" style="color: var(--accent)">167</div>
+        <div class="label">C++ Classes</div>
+      </div>
+      <div class="graph-stat">
+        <div class="value" style="color: var(--cyan)">129</div>
+        <div class="label">Enumerations</div>
+      </div>
+      <div class="graph-stat">
+        <div class="value" style="color: var(--green)">81</div>
+        <div class="label">Script Classes</div>
+      </div>
+      <div class="graph-stat">
+        <div class="value" style="color: var(--amber)">63</div>
+        <div class="label">Type Aliases</div>
+      </div>
+      <div class="graph-stat">
+        <div class="value" style="color: var(--rose)">43</div>
+        <div class="label">Game Definitions</div>
+      </div>
+      <div class="graph-stat">
+        <div class="value" style="color: var(--text-dim)">17</div>
+        <div class="label">Entities</div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-header">
+      <h2>Built on Azure Free Tier</h2>
+      <p>A showcase of what you can build on Azure's free and near-free services.</p>
+    </div>
+    <div class="free-tier">
+      <div class="tier-card">
+        <h4>Cosmos DB</h4>
+        <div class="price">FREE</div>
+        <p>1,000 RU/s, 25 GB. Knowledge graph + code chunks with vector search.</p>
+      </div>
+      <div class="tier-card">
+        <h4>Azure AI Search</h4>
+        <div class="price">FREE</div>
+        <p>50 MB index. Hybrid text + vector search, HNSW index, BM25 ranking.</p>
+      </div>
+      <div class="tier-card">
+        <h4>Azure Functions</h4>
+        <div class="price">FREE</div>
+        <p>1M executions/month. Consumption plan, .NET 10 isolated worker.</p>
+      </div>
+      <div class="tier-card">
+        <h4>Application Insights</h4>
+        <div class="price">FREE</div>
+        <p>5 GB/month ingestion. Request tracking, dependency monitoring, alerts.</p>
+      </div>
+      <div class="tier-card">
+        <h4>Log Analytics</h4>
+        <div class="price">FREE</div>
+        <p>5 GB/month ingestion. Centralized logs, KQL queries, diagnostics.</p>
+      </div>
+      <div class="tier-card">
+        <h4>App Configuration</h4>
+        <div class="price">FREE</div>
+        <p>10 MB storage, 1,000 requests/day. Non-secret config management.</p>
+      </div>
+      <div class="tier-card">
+        <h4>Static Web Apps</h4>
+        <div class="price">FREE</div>
+        <p>100 GB bandwidth/month. This very site, served globally with SSL.</p>
+      </div>
+      <div class="tier-card">
+        <h4>Key Vault</h4>
+        <div class="price">~$0.03/10K ops</div>
+        <p>Secret management with RBAC. Function App reads keys via managed identity.</p>
+      </div>
+      <div class="tier-card">
+        <h4>Azure OpenAI</h4>
+        <div class="price">Pay-per-token</div>
+        <p>text-embedding-3-small + GPT-5.4. Only pay when tools are called.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-header">
+      <h2>Connect in Seconds</h2>
+      <p>Add to your Claude Code config and start querying.</p>
+    </div>
+    <div class="architecture">{
+  "<span class="hl-accent">mcpServers</span>": {
+    "<span class="hl-cyan">cimmeria-rag</span>": {
+      "<span class="hl-green">type</span>": "http",
+      "<span class="hl-green">url</span>": "https://cimmeria-mcp.azurewebsites.net/runtime/webhooks/mcp",
+      "<span class="hl-green">headers</span>": { "<span class="hl-amber">x-functions-key</span>": "&lt;mcp_extension system key&gt;" }
+    }
+  }
+}</div>
+  </section>
+
+  <footer>
+    <p>
+      <a href="https://github.com/SandboxServers/Cimmeria-MCP">GitHub</a> &middot;
+      <a href="https://github.com/SandboxServers/Cimmeria">Cimmeria Server</a> &middot;
+      Built with Azure Functions MCP Extension
+    </p>
+  </footer>
+</body>
+</html>
