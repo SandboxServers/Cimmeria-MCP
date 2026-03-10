@@ -8,5 +8,7 @@ var builder = FunctionsApplication.CreateBuilder(args);
 builder.ConfigureFunctionsWebApplication();
 
 builder.Services.AddSingleton<CimmeriaSearchService>();
+builder.Services.AddSingleton<CimmeriaGraphService>();
+builder.Services.AddSingleton<CimmeriaSummarizationService>();
 
 builder.Build().Run();

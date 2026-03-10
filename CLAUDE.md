@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Cimmeria MCP Server — a C# Azure Function App that serves RAG search over the Cimmeria (Stargate Worlds) server codebase and the SGW game client assets via MCP (Model Context Protocol) over Streamable HTTP. Code chunks with `text-embedding-3-small` embeddings are stored in Azure Cosmos DB NoSQL with built-in vector search.
+Cimmeria MCP Server — a C# Azure Function App providing AI-powered codebase intelligence for the Cimmeria (Stargate Worlds) server emulator, SGW client assets, and BigWorld engine via MCP (Model Context Protocol) over Streamable HTTP. 34 tools across RAG search, knowledge graph queries, and GPT-5.4 AI skills.
 
 Uses the **Azure Functions MCP Extension** (`Microsoft.Azure.Functions.Worker.Extensions.Mcp`) — transport, auth, and MCP protocol are handled by the Functions runtime at `/runtime/webhooks/mcp`. Auth uses a system key.
 
@@ -31,29 +31,32 @@ cd src/CimmeriaMcp.Functions && func start
 
 **Runtime**: .NET 10 isolated worker, Azure Functions v4, Windows Consumption plan (Y1).
 
-**Data store**: Azure Cosmos DB NoSQL (`cimmeria-cosmos` account, free tier). Database `cimmeria`, container `code-chunks` with partition key `/source_project` and flat vector index on `/embedding`.
+### Data Stores
 
-**Sources indexed**:
-- `cimmeria-server` — Cimmeria Stargate Worlds server (C++, Rust, Python, SQL, docs)
-- `sgw-client` — SGW game client assets (Lua UI scripts, XML layouts, INI configs, shaders, localization)
+- **Azure AI Search** (`cimmeria-code` index) — hybrid text + vector search over code chunks, `text-embedding-3-small` embeddings
+- **Cosmos DB NoSQL** (`cimmeria` database) — two containers:
+  - `code-chunks` — embedded code snippets with vector index, partitioned by `/source_project`
+  - `knowledge-graph` — 4,801 vertices + 4,340 edges (entities, methods, properties, enums, types, game defs, C++ classes, worlds), partitioned by `/pk`
+- **Azure OpenAI** — `text-embedding-3-small` (embeddings), `gpt-5.4` (all AI skills)
 
 ### Key Components
 
-- **`Tools/CimmeriaSearchTools.cs`** — All 6 MCP tool functions. Each uses `[McpToolTrigger]` and `[McpToolProperty]` attributes. Functions are thin wrappers that delegate to the search service. All tools accept an optional `source` filter (`cimmeria-server` or `sgw-client`).
-- **`Services/CimmeriaSearchService.cs`** — Core logic: embeds queries via Azure OpenAI `EmbeddingClient`, performs vector search against Cosmos DB using `VectorDistance()` SQL function. Registered as singleton via DI.
-- **`Program.cs`** — Host builder, DI registration.
+- **`Tools/CimmeriaSearchTools.cs`** — 6 RAG search tools. Thin wrappers delegating to `CimmeriaSearchService`.
+- **`Tools/CimmeriaGraphTools.cs`** — 14 knowledge graph tools. Thin wrappers delegating to `CimmeriaGraphService`.
+- **`Tools/CimmeriaAiTools.cs`** — 14 AI skill tools. Thin wrappers delegating to `CimmeriaSummarizationService`.
+- **`Services/CimmeriaSearchService.cs`** — Embeds queries via Azure OpenAI, performs hybrid search against Azure AI Search.
+- **`Services/CimmeriaGraphService.cs`** — Queries Cosmos DB knowledge graph. Uses `Newtonsoft.Json.JsonConvert.SerializeObject()` (not System.Text.Json) because Cosmos SDK v3 returns `JObject` for dynamic queries.
+- **`Services/CimmeriaSummarizationService.cs`** — GPT-5.4 AI skills engine. Shared helpers: `GatherContextAsync()` (context-aware input gathering), `SearchCodeAsync()` (RAG), `GetEntityContextAsync()` (graph), `CallGptAsync()` (unified GPT call). Standardized response format via `ResponseFormatInstruction` constant and `Respond()` wrapper.
+- **`Program.cs`** — Host builder, DI registration (3 singleton services).
 - **`host.json`** — MCP extension config (`serverName`, `serverVersion`, `instructions`). Extension bundle `[4.0.0, 5.0.0)`.
 
-### MCP Tools (6 total)
+### MCP Tools (34 total)
 
-| Tool | Purpose |
-|------|---------|
-| `search_cimmeria` | Vector semantic search (main tool) |
-| `list_cimmeria_files` | List all indexed files, optional type/source filter |
-| `get_file_content` | Reassemble full file from chunks by `file_path` |
-| `find_similar_code` | Pure vector search for similar code patterns |
-| `get_project_overview` | File type counts, directory tree, index stats |
-| `search_by_directory` | Semantic search scoped to a path prefix |
+**Search (6)**: `search_cimmeria`, `list_cimmeria_files`, `get_file_content`, `find_similar_code`, `get_project_overview`, `search_by_directory`
+
+**Knowledge Graph (14)**: `get_entity_details`, `get_inheritance_tree`, `get_graph_overview`, `get_game_system_details`, `get_replicated_properties`, `get_method_call_chain`, `traverse_graph`, `lookup_enum`, `resolve_type`, `lookup_game_def`, `get_implementation_status`, `cross_reference`, `get_entity_protocol`, `lookup_bigworld_api`
+
+**AI Skills (14)**: `explain_cimmeria`, `generate_entity_stub`, `translate_python_to_rust`, `generate_tests`, `troubleshoot`, `review_code`, `check_compatibility`, `analyze_impact`, `plan_implementation`, `whats_next`, `analyze_protocol`, `trace_sequence`, `generate_diagram`, `decode_game_design`
 
 ### MCP Extension API Conventions
 
@@ -62,20 +65,20 @@ cd src/CimmeriaMcp.Functions && func start
 
 ### Cosmos DB Notes
 
-- Uses `Microsoft.Azure.Cosmos` v3.46.0 with System.Text.Json (Newtonsoft check disabled via `AzureCosmosDisableNewtonsoftJsonCheck`).
-- Vector search uses `VectorDistance()` with cosine distance (lower = more similar).
-- Container uses `flat` vector index type (appropriate for < 10K documents).
-- Free tier: 1000 RU/s, 25 GB. The indexer rate-limits writes to ~400 RU/s.
+- Knowledge graph uses `doc_type` field (`vertex` or `edge`) with snake_case field names (`from_id`, `to_id`, `method_type`, `data_type`).
+- `c.value` is a reserved word in Cosmos DB SQL — must use `c["value"]` to escape.
+- Cosmos SDK v3 dynamic queries return `Newtonsoft.Json.Linq.JObject` — `System.Text.Json.JsonSerializer` cannot serialize these. Always use `JsonConvert.SerializeObject()`.
+- Document IDs cannot contain `/`, `\`, `#`, `?` — use `safe_id()` to sanitize.
 
 ### Infrastructure (`infra/`)
 
-Terraform configs targeting existing `ailab-rg` resource group. Creates Service Plan (Y1) + Windows Function App. Uses existing storage account `ailabstoragesc`. App settings inject `OPENAI_ENDPOINT`, `OPENAI_KEY`, `COSMOS_ENDPOINT`, `COSMOS_KEY`.
+Terraform configs targeting existing `ailab-rg` resource group. Creates Service Plan (Y1) + Windows Function App. Uses existing storage account `ailabstoragesc`. App settings inject `OPENAI_ENDPOINT`, `OPENAI_KEY`, `COSMOS_ENDPOINT`, `COSMOS_KEY`, `SEARCH_ENDPOINT`, `SEARCH_KEY`.
 
 **Important**: Do NOT set `FUNCTIONS_WORKER_RUNTIME` in `app_settings` when using `application_stack` in Terraform — they conflict. `always_on` must be `false` on Consumption plan.
 
 ### Pipelines (`pipelines/`)
 
-Azure Pipelines with template hierarchy: `azure-pipelines.yml` → stage template → job templates → step templates. Three stages: Build, Test, Deploy (deploy only on `main`).
+Azure Pipelines with template hierarchy: `azure-pipelines.yml` -> stage template -> job templates -> step templates. Three stages: Build, Test, Deploy (deploy only on `main`).
 
 ## Environment Variables
 
@@ -85,6 +88,8 @@ Required in `local.settings.json` for local dev (gitignored):
 |----------|---------|
 | `OPENAI_ENDPOINT` | Azure OpenAI endpoint URL |
 | `OPENAI_KEY` | Azure OpenAI API key |
+| `SEARCH_ENDPOINT` | Azure AI Search endpoint URL |
+| `SEARCH_KEY` | Azure AI Search API key |
 | `COSMOS_ENDPOINT` | Azure Cosmos DB endpoint URL |
 | `COSMOS_KEY` | Azure Cosmos DB primary key |
 

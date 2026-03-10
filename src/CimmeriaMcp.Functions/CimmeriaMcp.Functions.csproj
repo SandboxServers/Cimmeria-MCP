@@ -17,6 +17,7 @@
     <PackageReference Include="Microsoft.Azure.Functions.Worker.Extensions.Mcp" Version="1.2.0-preview.1" />
     <PackageReference Include="Azure.AI.OpenAI" Version="2.1.0" />
     <PackageReference Include="Microsoft.Azure.Cosmos" Version="3.46.0" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
   </ItemGroup>
 
   <ItemGroup>

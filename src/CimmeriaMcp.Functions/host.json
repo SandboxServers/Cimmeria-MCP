@@ -7,8 +7,8 @@
   "extensions": {
     "mcp": {
       "serverName": "cimmeria-rag",
-      "serverVersion": "1.0.0",
-      "instructions": "Semantic search over the Cimmeria (Stargate Worlds) server and SGW client codebases. Supports filtering by source: cimmeria-server or sgw-client."
+      "serverVersion": "2.0.0",
+      "instructions": "Comprehensive AI-powered codebase intelligence for the Cimmeria (Stargate Worlds) server emulator, SGW client assets, and BigWorld engine. 34 tools across 3 categories: (1) RAG Search — semantic search, file listing, file content, similar code, project overview, directory search. (2) Knowledge Graph — entity details, inheritance, game systems, protocols, enums, types, game defs, implementation coverage, cross-reference, BigWorld API reference, graph traversal. (3) AI Skills — explain codebase, troubleshoot issues, plan entity implementation, review Rust code, translate Python-to-Rust, check client compatibility, analyze impact, trace message sequences, recommend what to implement next, analyze protocol, generate Rust entity stubs, generate tests, generate Mermaid diagrams, decode game design. All AI skills powered by GPT-5.4 with standardized response format."
     }
   }
 }
