@@ -53,6 +53,15 @@ param alertEmail string = ''
 @description('Deploy free-tier showcase resources (Key Vault, App Config, Monitoring)')
 param deployShowcase bool = true
 
+@description('Azure API Management name (globally unique)')
+param apiManagementName string = 'cimmeria-mcp-apim'
+
+@description('Azure Automation Account name')
+param automationAccountName string = 'cimmeria-mcp-automation'
+
+@description('Azure SignalR Service name (globally unique)')
+param signalrName string = 'cimmeria-mcp-signalr'
+
 var tags = {
   project: 'cimmeria-mcp'
   'managed-by': 'bicep'
@@ -166,6 +175,23 @@ resource knowledgeGraph 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/cont
   }
 }
 
+resource leases 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2024-05-15' = {
+  parent: db
+  name: 'leases'
+  properties: {
+    resource: {
+      id: 'leases'
+      partitionKey: {
+        paths: ['/id']
+        kind: 'Hash'
+      }
+    }
+    options: {
+      throughput: 400
+    }
+  }
+}
+
 // =============================================================================
 // Azure OpenAI
 // =============================================================================
@@ -248,21 +274,38 @@ resource gpt41Deployment 'Microsoft.CognitiveServices/accounts/deployments@2024-
   dependsOn: [gpt4oDeployment]
 }
 
-resource gpt54Deployment 'Microsoft.CognitiveServices/accounts/deployments@2024-10-01' = {
+resource gpt51ChatDeployment 'Microsoft.CognitiveServices/accounts/deployments@2024-10-01' = {
   parent: openai
-  name: 'gpt-5-4'
+  name: 'gpt-5-1-chat'
   sku: {
-    name: 'Standard'
+    name: 'GlobalStandard'
     capacity: 1
   }
   properties: {
     model: {
       format: 'OpenAI'
-      name: 'gpt-5.4'
-      version: '2026-03-05'
+      name: 'gpt-5.1-chat'
+      version: '2025-11-13'
     }
   }
   dependsOn: [gpt41Deployment]
+}
+
+resource gpt51CodexMiniDeployment 'Microsoft.CognitiveServices/accounts/deployments@2024-10-01' = {
+  parent: openai
+  name: 'gpt-5-1-codex-mini'
+  sku: {
+    name: 'GlobalStandard'
+    capacity: 1
+  }
+  properties: {
+    model: {
+      format: 'OpenAI'
+      name: 'gpt-5.1-codex-mini'
+      version: '2025-11-13'
+    }
+  }
+  dependsOn: [gpt51ChatDeployment]
 }
 
 // =============================================================================
@@ -467,6 +510,22 @@ resource func 'Microsoft.Web/sites@2024-04-01' = {
             name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
             value: insights.properties.ConnectionString
           }
+          {
+            name: 'AzureSignalRConnectionString'
+            value: '@Microsoft.KeyVault(VaultName=${vault.name};SecretName=signalr-connection)'
+          }
+          {
+            name: 'APPINSIGHTS_RESOURCE_ID'
+            value: insights.id
+          }
+          {
+            name: 'COSMOS_RESOURCE_ID'
+            value: cosmos.id
+          }
+          {
+            name: 'COSMOS_CONNECTION_STRING'
+            value: cosmos.listConnectionStrings().connectionStrings[0].connectionString
+          }
         ] : [
           {
             name: 'OPENAI_KEY'
@@ -485,6 +544,10 @@ resource func 'Microsoft.Web/sites@2024-04-01' = {
           {
             name: 'SEARCH_KEY'
             value: deployShowcase ? '@Microsoft.KeyVault(VaultName=${vault.name};SecretName=search-key)' : search.listAdminKeys().primaryKey
+          }
+          {
+            name: 'SEARCH_RESOURCE_ID'
+            value: search.id
           }
         ] : []
       )
@@ -584,6 +647,216 @@ resource budget 'Microsoft.Consumption/budgets@2023-11-01' = if (deployShowcase 
 }
 
 // =============================================================================
+// API Management (Consumption tier — 1M calls/month free)
+// =============================================================================
+
+resource apim 'Microsoft.ApiManagement/service@2023-09-01-preview' = if (deployShowcase) {
+  name: apiManagementName
+  location: computeLocation
+  tags: tags
+  sku: {
+    name: 'Consumption'
+    capacity: 0
+  }
+  properties: {
+    publisherName: 'Cimmeria MCP'
+    publisherEmail: alertEmail != '' ? alertEmail : 'noreply@cimmeria-mcp.dev'
+  }
+}
+
+resource apimApi 'Microsoft.ApiManagement/service/apis@2023-09-01-preview' = if (deployShowcase) {
+  parent: apim
+  name: 'cimmeria-mcp-api'
+  properties: {
+    displayName: 'Cimmeria MCP'
+    path: 'mcp'
+    protocols: ['https']
+    serviceUrl: 'https://${func.properties.defaultHostName}'
+    apiRevision: '1'
+  }
+}
+
+// =============================================================================
+// Azure Automation (500 min/month free)
+// =============================================================================
+
+resource automation 'Microsoft.Automation/automationAccounts@2023-11-01' = if (deployShowcase) {
+  name: automationAccountName
+  location: computeLocation
+  tags: tags
+  identity: {
+    type: 'SystemAssigned'
+  }
+  properties: {
+    sku: {
+      name: 'Basic'
+    }
+  }
+}
+
+resource keyRotationRunbook 'Microsoft.Automation/automationAccounts/runbooks@2023-11-01' = if (deployShowcase) {
+  parent: automation
+  name: 'Rotate-Keys'
+  location: computeLocation
+  tags: tags
+  properties: {
+    runbookType: 'PowerShell'
+    logProgress: true
+    logVerbose: false
+  }
+}
+
+// RBAC: Automation → Contributor on RG
+resource automationContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployShowcase) {
+  name: guid(resourceGroup().id, automation.id, 'b24988ac-6180-42a0-ab88-20f7382dd24c')
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'b24988ac-6180-42a0-ab88-20f7382dd24c')
+    principalId: automation.identity.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+// RBAC: Automation → Key Vault Secrets Officer
+resource automationKvOfficer 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployShowcase) {
+  name: guid(vault.id, automation.id, 'b86a8fe4-44ce-4948-aee5-eccb2c155cd7')
+  scope: vault
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'b86a8fe4-44ce-4948-aee5-eccb2c155cd7')
+    principalId: automation.identity.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+// =============================================================================
+// Azure SignalR Service (Free tier — 20 connections, 20K messages/day)
+// =============================================================================
+
+resource signalr 'Microsoft.SignalRService/signalR@2024-03-01' = if (deployShowcase) {
+  name: signalrName
+  location: computeLocation
+  tags: tags
+  sku: {
+    name: 'Free_F1'
+    capacity: 1
+  }
+  kind: 'SignalR'
+  properties: {
+    features: [
+      {
+        flag: 'ServiceMode'
+        value: 'Serverless'
+      }
+    ]
+  }
+}
+
+resource signalrSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = if (deployShowcase) {
+  parent: vault
+  name: 'signalr-connection'
+  properties: {
+    value: signalr.listKeys().primaryConnectionString
+  }
+}
+
+// =============================================================================
+// Monitoring Reader RBAC (for metrics endpoint)
+// =============================================================================
+
+resource funcMonitoringReader 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployShowcase) {
+  name: guid(resourceGroup().id, func.id, '43d0d8ad-25c7-4714-9337-8ba259a9fe05')
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '43d0d8ad-25c7-4714-9337-8ba259a9fe05')
+    principalId: func.identity.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+// =============================================================================
+// Azure Portal Dashboard (free — IaC-defined)
+// =============================================================================
+
+resource dashboard 'Microsoft.Portal/dashboards@2020-09-01-preview' = if (deployShowcase) {
+  name: 'cimmeria-mcp-dashboard'
+  location: computeLocation
+  tags: tags
+  properties: {
+    lenses: [
+      {
+        order: 0
+        parts: [
+          {
+            position: { x: 0, y: 0, colSpan: 12, rowSpan: 1 }
+            metadata: {
+              type: 'Extension/HubsExtension/PartType/MarkdownPart'
+              inputs: []
+              settings: {
+                content: {
+                  settings: {
+                    title: 'Cimmeria MCP Server'
+                    subtitle: 'Operational Dashboard'
+                    content: 'Real-time metrics for the Cimmeria MCP Server infrastructure.'
+                  }
+                }
+              }
+            }
+          }
+          {
+            position: { x: 0, y: 1, colSpan: 6, rowSpan: 4 }
+            metadata: {
+              type: 'Extension/Microsoft_Azure_Monitoring/PartType/MetricsChartPart'
+              inputs: [
+                {
+                  name: 'queryInputs'
+                  value: {
+                    id: func.id
+                    chartType: 2
+                    timespan: { duration: 'PT24H' }
+                    metrics: [
+                      {
+                        resourceMetadata: { id: func.id }
+                        name: 'FunctionExecutionCount'
+                        aggregationType: 1
+                        metricVisualization: { displayName: 'Execution Count' }
+                      }
+                    ]
+                    title: 'Function Executions (24h)'
+                  }
+                }
+              ]
+            }
+          }
+          {
+            position: { x: 6, y: 1, colSpan: 6, rowSpan: 4 }
+            metadata: {
+              type: 'Extension/Microsoft_Azure_Monitoring/PartType/MetricsChartPart'
+              inputs: [
+                {
+                  name: 'queryInputs'
+                  value: {
+                    id: cosmos.id
+                    chartType: 2
+                    timespan: { duration: 'PT24H' }
+                    metrics: [
+                      {
+                        resourceMetadata: { id: cosmos.id }
+                        name: 'NormalizedRUConsumption'
+                        aggregationType: 3
+                        metricVisualization: { displayName: 'RU Consumption %' }
+                      }
+                    ]
+                    title: 'Cosmos DB RU Consumption (24h)'
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ]
+  }
+}
+
+// =============================================================================
 // Outputs
 // =============================================================================
 
@@ -597,3 +870,6 @@ output keyVaultUri string = deployShowcase ? vault.properties.vaultUri : ''
 output appConfigEndpoint string = deployShowcase ? appConfig.properties.endpoint : ''
 output functionAppPrincipalId string = func.identity.principalId
 output staticSiteUrl string = deployShowcase ? 'https://${staticSite.properties.defaultHostname}' : ''
+output apimGatewayUrl string = deployShowcase ? apim.properties.gatewayUrl : ''
+output signalrHostname string = deployShowcase ? signalr.properties.hostName : ''
+output dashboardUrl string = deployShowcase ? 'https://portal.azure.com/#@/dashboard/arm${dashboard.id}' : ''

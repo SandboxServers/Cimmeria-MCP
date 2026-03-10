@@ -39,7 +39,7 @@ Claude Code ──HTTP──▸ Azure Functions─┤    ┌──────�
 | `sgw-client` | Cosmos DB `VectorDistance()` | — |
 | `bigworld-engine` | Cosmos DB `VectorDistance()` | — |
 
-The AI Search index is populated by a Cosmos DB indexer on a 5-minute schedule, pulling from the `code-chunks` container filtered to `source_project = 'cimmeria-server'`. Hybrid search combines BM25 text ranking with HNSW vector similarity for better results.
+The AI Search index is populated by a Cosmos DB indexer on a 5-minute schedule, pulling from the `code-chunks` container filtered to `source_project = 'cimmeria-server'`. A Cosmos DB change feed trigger provides near-real-time indexing with a 30-second debounce on top of the scheduled baseline. Hybrid search combines BM25 text ranking with HNSW vector similarity for better results.
 
 ## MCP Tools (34 total)
 
@@ -73,7 +73,7 @@ The AI Search index is populated by a Cosmos DB indexer on a 5-minute schedule, 
 | `get_entity_protocol` | Full client-server protocol map — RPCs, replicated properties |
 | `lookup_bigworld_api` | BigWorld engine API usage and C++ reimplementations |
 
-### AI Skills (14) — powered by GPT-5.4
+### AI Skills (14) — powered by GPT-5.1 Chat + GPT-5.1 Codex Mini
 
 | Tool | Description |
 |------|-------------|
@@ -92,7 +92,7 @@ The AI Search index is populated by a Cosmos DB indexer on a 5-minute schedule, 
 | `generate_diagram` | Generate Mermaid diagrams — class, sequence, flowchart, state, dependency |
 | `decode_game_design` | Reverse-engineer game design from code — player experience, mechanics, progression |
 
-All AI skills use a standardized response format:
+AI skills use dual models: **GPT-5.1 Chat** for analysis and reasoning (explain, troubleshoot, review, plan, analyze), **GPT-5.1 Codex Mini** for code generation (entity stubs, Python-to-Rust translation, test generation, Mermaid diagrams). All skills use a standardized response format:
 - **Summary** — 1-3 sentence high-level answer
 - **Details** — Detailed analysis with clear subheadings
 - **Sources & Evidence** — File paths, method names, graph data
@@ -142,7 +142,8 @@ All AI skills use a standardized response format:
        "SEARCH_ENDPOINT": "https://your-search.search.windows.net",
        "SEARCH_KEY": "your-key",
        "COSMOS_ENDPOINT": "https://your-cosmos.documents.azure.com:443/",
-       "COSMOS_KEY": "your-key"
+       "COSMOS_KEY": "your-key",
+       "AzureSignalRConnectionString": "Endpoint=https://your-signalr.service.signalr.net;AccessKey=your-key;Version=1.0;"
      }
    }
    ```
@@ -213,7 +214,7 @@ cd infra/bicep
 az deployment group create --resource-group ailab-rg --template-file main.bicep --parameters main.bicepparam
 ```
 
-Managed resources: Cosmos DB (account, database, 2 containers), Azure OpenAI (account, 5 model deployments), Azure AI Search, App Service Plan, Function App. App settings are derived from resource references — no manual secret injection needed.
+Managed resources: Cosmos DB (account, database, 3 containers), Azure OpenAI (account, 5 model deployments), Azure AI Search, App Service Plan, Function App, Key Vault, App Configuration, Log Analytics, Application Insights, Static Web App, API Management (Consumption), Azure Automation (key rotation), SignalR Service (free tier), Portal Dashboard, Budget Alerts. App settings are derived from resource references — no manual secret injection needed.
 
 ### Publish
 
@@ -232,27 +233,40 @@ Or via Azure Pipelines (triggers on push to `main`).
 │   │   ├── CimmeriaSearchTools.cs         # 6 RAG search tools
 │   │   ├── CimmeriaGraphTools.cs          # 14 knowledge graph tools
 │   │   └── CimmeriaAiTools.cs             # 14 AI skill tools
+│   ├── Functions/
+│   │   ├── IndexerTrigger.cs              # Cosmos DB change feed → AI Search indexer
+│   │   ├── SignalRHub.cs                  # SignalR negotiate + broadcast
+│   │   └── MetricsEndpoint.cs             # HTTP GET /api/metrics
 │   ├── Services/
 │   │   ├── CimmeriaSearchService.cs       # AI Search hybrid + Cosmos DB fallback
 │   │   ├── CimmeriaGraphService.cs        # Cosmos DB knowledge graph queries
-│   │   └── CimmeriaSummarizationService.cs # GPT-5.4 AI skills engine
+│   │   ├── CimmeriaSummarizationService.cs # GPT-5.4 AI skills engine
+│   │   └── MetricsService.cs              # Azure Monitor metrics + caching
 │   └── host.json                          # MCP extension config
 ├── src/CimmeriaMcp.Functions.Tests/
 │   ├── CimmeriaSearchServiceTests.cs      # Search routing + structure tests
-│   └── CimmeriaSummarizationServiceTests.cs # AI skill contract tests
+│   ├── CimmeriaSummarizationServiceTests.cs # AI skill contract tests
+│   ├── IndexerTriggerTests.cs             # Change feed trigger tests
+│   ├── MetricsServiceTests.cs             # Metrics service tests
+│   ├── MetricsEndpointTests.cs            # Metrics endpoint tests
+│   └── SignalRHubTests.cs                 # SignalR negotiate + broadcast tests
 ├── infra/
 │   ├── main.tf                            # Terraform — all Azure resources
 │   ├── variables.tf                       # Resource names + flags
 │   ├── outputs.tf                         # Endpoints
 │   ├── providers.tf                       # azurerm ~> 4.0
+│   ├── dashboard.json                     # Azure Portal dashboard tile definitions
 │   ├── tests/deploy.tftest.hcl            # Terraform native test
 │   └── bicep/
 │       ├── main.bicep                     # Equivalent Bicep template
 │       ├── main.bicepparam                # Production parameters
 │       └── tests/                         # Bicep test parameters + validation
+├── site/
+│   └── index.html                         # Showcase site (dashboard + activity feed)
 ├── pipelines/                             # Azure Pipelines (build/test/deploy)
 └── scripts/
-    └── Deploy-Local.ps1                   # Local publish + deploy
+    ├── Deploy-Local.ps1                   # Local publish + deploy
+    └── Rotate-Keys.ps1                    # Key rotation runbook (Azure Automation)
 ```
 
 ## Tech Stack
@@ -260,8 +274,12 @@ Or via Azure Pipelines (triggers on push to `main`).
 - **.NET 10** isolated worker, Azure Functions v4
 - **Azure Functions MCP Extension** (`Microsoft.Azure.Functions.Worker.Extensions.Mcp`)
 - **Azure AI Search** — hybrid text + vector (HNSW, 505-dim, cosine) for cimmeria-server
-- **Azure OpenAI** — `text-embedding-3-small` (embeddings), `gpt-5-4` (AI skills)
-- **Cosmos DB** — NoSQL knowledge graph (4,801 vertices, 4,340 edges) + vector search fallback
+- **Azure OpenAI** — `text-embedding-3-small` (embeddings), `gpt-5.1-chat` (analysis/reasoning), `gpt-5.1-codex-mini` (code generation/translation)
+- **Cosmos DB** — NoSQL knowledge graph (4,801 vertices, 4,340 edges) + vector search fallback + change feed trigger
+- **Azure SignalR Service** — real-time tool invocation activity feed (free tier)
+- **API Management** — Consumption tier API gateway (1M calls/month free)
+- **Azure Automation** — monthly key rotation runbook (500 min/month free)
+- **Azure Monitor Query** — live metrics dashboard via `Azure.Monitor.Query` + `Azure.Identity`
 - **Terraform** + **Bicep** for infrastructure
-- **xUnit** for testing
+- **xUnit** for testing (28 structural/contract tests)
 - **Azure Pipelines** for CI/CD

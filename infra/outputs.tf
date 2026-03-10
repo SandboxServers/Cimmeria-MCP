@@ -49,3 +49,15 @@ output "function_app_principal_id" {
 output "static_site_url" {
   value = var.deploy_showcase ? "https://${azurerm_static_web_app.site[0].default_host_name}" : ""
 }
+
+output "apim_gateway_url" {
+  value = var.deploy_showcase ? azurerm_api_management.apim[0].gateway_url : ""
+}
+
+output "signalr_hostname" {
+  value = var.deploy_showcase ? azurerm_signalr_service.signalr[0].hostname : ""
+}
+
+output "dashboard_url" {
+  value = var.deploy_showcase ? "https://portal.azure.com/#@/dashboard/arm${azurerm_portal_dashboard.dashboard[0].id}" : ""
+}

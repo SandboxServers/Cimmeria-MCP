@@ -7,10 +7,12 @@ namespace CimmeriaMcp.Functions.Tools;
 public class CimmeriaSearchTools
 {
     private readonly CimmeriaSearchService _searchService;
+    private readonly SignalRBroadcastService _signalR;
 
-    public CimmeriaSearchTools(CimmeriaSearchService searchService)
+    public CimmeriaSearchTools(CimmeriaSearchService searchService, SignalRBroadcastService signalR)
     {
         _searchService = searchService;
+        _signalR = signalR;
     }
 
     [Function(nameof(SearchCimmeria))]
@@ -24,7 +26,8 @@ public class CimmeriaSearchTools
         [McpToolProperty("source", "Filter by source: cimmeria-server, sgw-client, or bigworld-engine")] string? source)
     {
         var k = Math.Clamp(topK ?? 8, 1, 20);
-        return await _searchService.SearchAsync(query, k, fileType, source);
+        return await _signalR.TrackToolAsync("search_cimmeria",
+            () => _searchService.SearchAsync(query, k, fileType, source));
     }
 
     [Function(nameof(ListCimmeriaFiles))]
@@ -35,7 +38,8 @@ public class CimmeriaSearchTools
         [McpToolProperty("file_type", "Filter by extension")] string? fileType,
         [McpToolProperty("source", "Filter by source: cimmeria-server, sgw-client, or bigworld-engine")] string? source)
     {
-        return await _searchService.ListFilesAsync(fileType, source);
+        return await _signalR.TrackToolAsync("list_cimmeria_files",
+            () => _searchService.ListFilesAsync(fileType, source));
     }
 
     [Function(nameof(GetFileContent))]
@@ -46,7 +50,8 @@ public class CimmeriaSearchTools
         [McpToolProperty("file_path", "Relative path e.g. src/network/packet.cpp", isRequired: true)] string filePath,
         [McpToolProperty("source", "Source: cimmeria-server, sgw-client, or bigworld-engine (helps disambiguate)")] string? source)
     {
-        return await _searchService.GetFileContentAsync(filePath, source);
+        return await _signalR.TrackToolAsync("get_file_content",
+            () => _searchService.GetFileContentAsync(filePath, source));
     }
 
     [Function(nameof(FindSimilarCode))]
@@ -59,7 +64,8 @@ public class CimmeriaSearchTools
         [McpToolProperty("source", "Filter by source: cimmeria-server, sgw-client, or bigworld-engine")] string? source)
     {
         var k = Math.Clamp(topK ?? 5, 1, 20);
-        return await _searchService.FindSimilarCodeAsync(codeSnippet, k, source);
+        return await _signalR.TrackToolAsync("find_similar_code",
+            () => _searchService.FindSimilarCodeAsync(codeSnippet, k, source));
     }
 
     [Function(nameof(GetProjectOverview))]
@@ -69,7 +75,8 @@ public class CimmeriaSearchTools
         ToolInvocationContext context,
         [McpToolProperty("source", "Filter by source: cimmeria-server, sgw-client, or bigworld-engine")] string? source)
     {
-        return await _searchService.GetProjectOverviewAsync(source);
+        return await _signalR.TrackToolAsync("get_project_overview",
+            () => _searchService.GetProjectOverviewAsync(source));
     }
 
     [Function(nameof(SearchByDirectory))]
@@ -83,6 +90,7 @@ public class CimmeriaSearchTools
         [McpToolProperty("source", "Filter by source: cimmeria-server, sgw-client, or bigworld-engine")] string? source)
     {
         var k = Math.Clamp(topK ?? 8, 1, 20);
-        return await _searchService.SearchByDirectoryAsync(pathPrefix, query, k, source);
+        return await _signalR.TrackToolAsync("search_by_directory",
+            () => _searchService.SearchByDirectoryAsync(pathPrefix, query, k, source));
     }
 }

@@ -7,10 +7,12 @@ namespace CimmeriaMcp.Functions.Tools;
 public class CimmeriaAiTools
 {
     private readonly CimmeriaSummarizationService _aiService;
+    private readonly SignalRBroadcastService _signalR;
 
-    public CimmeriaAiTools(CimmeriaSummarizationService aiService)
+    public CimmeriaAiTools(CimmeriaSummarizationService aiService, SignalRBroadcastService signalR)
     {
         _aiService = aiService;
+        _signalR = signalR;
     }
 
     // ====================================================================
@@ -25,7 +27,8 @@ public class CimmeriaAiTools
         [McpToolProperty("question", "Natural language question about the codebase", isRequired: true)] string question,
         [McpToolProperty("focus", "Optional: focus on a source — cimmeria-server, sgw-client, or bigworld-engine")] string? focus)
     {
-        return await _aiService.ExplainAsync(question, focus);
+        return await _signalR.TrackToolAsync("explain_cimmeria",
+            () => _aiService.ExplainAsync(question, focus));
     }
 
     // ====================================================================
@@ -39,7 +42,8 @@ public class CimmeriaAiTools
         ToolInvocationContext context,
         [McpToolProperty("entity_name", "Entity name e.g. SGWPlayer, SGWMob", isRequired: true)] string entityName)
     {
-        return await _aiService.GenerateEntityStubAsync(entityName);
+        return await _signalR.TrackToolAsync("generate_entity_stub",
+            () => _aiService.GenerateEntityStubAsync(entityName));
     }
 
     [Function(nameof(TranslatePythonToRust))]
@@ -50,7 +54,8 @@ public class CimmeriaAiTools
         [McpToolProperty("entity_name", "Entity name e.g. SGWPlayer, SGWMob", isRequired: true)] string entityName,
         [McpToolProperty("method_name", "Optional: specific method to translate. Omit for full entity.")] string? methodName)
     {
-        return await _aiService.TranslatePythonToRustAsync(entityName, methodName);
+        return await _signalR.TrackToolAsync("translate_python_to_rust",
+            () => _aiService.TranslatePythonToRustAsync(entityName, methodName));
     }
 
     [Function(nameof(GenerateTests))]
@@ -61,7 +66,8 @@ public class CimmeriaAiTools
         [McpToolProperty("entity_name", "Entity name e.g. SGWPlayer, SGWMob", isRequired: true)] string entityName,
         [McpToolProperty("method_name", "Optional: specific method to generate tests for. Omit for full entity.")] string? methodName)
     {
-        return await _aiService.GenerateTestsAsync(entityName, methodName);
+        return await _signalR.TrackToolAsync("generate_tests",
+            () => _aiService.GenerateTestsAsync(entityName, methodName));
     }
 
     // ====================================================================
@@ -77,7 +83,8 @@ public class CimmeriaAiTools
         [McpToolProperty("code", "Optional: paste the problematic Rust code")] string? code,
         [McpToolProperty("entity_name", "Optional: entity involved (enables protocol & implementation checks)")] string? entityName)
     {
-        return await _aiService.TroubleshootAsync(description, code, entityName);
+        return await _signalR.TrackToolAsync("troubleshoot",
+            () => _aiService.TroubleshootAsync(description, code, entityName));
     }
 
     [Function(nameof(ReviewCode))]
@@ -88,7 +95,8 @@ public class CimmeriaAiTools
         [McpToolProperty("code", "Rust code to review", isRequired: true)] string code,
         [McpToolProperty("entity_name", "Optional: entity name for targeted spec checking")] string? entityName)
     {
-        return await _aiService.ReviewCodeAsync(code, entityName);
+        return await _signalR.TrackToolAsync("review_code",
+            () => _aiService.ReviewCodeAsync(code, entityName));
     }
 
     [Function(nameof(CheckCompatibility))]
@@ -99,7 +107,8 @@ public class CimmeriaAiTools
         [McpToolProperty("code", "Rust code to verify", isRequired: true)] string code,
         [McpToolProperty("entity_name", "Entity name to check against", isRequired: true)] string entityName)
     {
-        return await _aiService.CheckCompatibilityAsync(code, entityName);
+        return await _signalR.TrackToolAsync("check_compatibility",
+            () => _aiService.CheckCompatibilityAsync(code, entityName));
     }
 
     [Function(nameof(AnalyzeImpact))]
@@ -110,7 +119,8 @@ public class CimmeriaAiTools
         [McpToolProperty("entity_name", "Entity that owns the method/property", isRequired: true)] string entityName,
         [McpToolProperty("target_name", "Method or property name to analyze", isRequired: true)] string targetName)
     {
-        return await _aiService.AnalyzeImpactAsync(entityName, targetName);
+        return await _signalR.TrackToolAsync("analyze_impact",
+            () => _aiService.AnalyzeImpactAsync(entityName, targetName));
     }
 
     // ====================================================================
@@ -124,7 +134,8 @@ public class CimmeriaAiTools
         ToolInvocationContext context,
         [McpToolProperty("entity_name", "Entity name e.g. SGWPlayer, SGWMob, Account", isRequired: true)] string entityName)
     {
-        return await _aiService.PlanImplementationAsync(entityName);
+        return await _signalR.TrackToolAsync("plan_implementation",
+            () => _aiService.PlanImplementationAsync(entityName));
     }
 
     [Function(nameof(WhatsNext))]
@@ -133,7 +144,8 @@ public class CimmeriaAiTools
             "Recommend what to implement next based on current coverage, dependency impact, and game importance. Analyzes all entities' implementation status and ranks them by client-criticality, dependency count, Python coverage, and game system impact.")]
         ToolInvocationContext context)
     {
-        return await _aiService.SuggestNextAsync();
+        return await _signalR.TrackToolAsync("whats_next",
+            () => _aiService.SuggestNextAsync());
     }
 
     [Function(nameof(AnalyzeProtocol))]
@@ -143,7 +155,8 @@ public class CimmeriaAiTools
         ToolInvocationContext context,
         [McpToolProperty("entity_or_system", "Entity name (SGWPlayer) or game system (combat, inventory)", isRequired: true)] string entityOrSystem)
     {
-        return await _aiService.AnalyzeProtocolAsync(entityOrSystem);
+        return await _signalR.TrackToolAsync("analyze_protocol",
+            () => _aiService.AnalyzeProtocolAsync(entityOrSystem));
     }
 
     // ====================================================================
@@ -157,7 +170,8 @@ public class CimmeriaAiTools
         ToolInvocationContext context,
         [McpToolProperty("scenario", "Game scenario to trace e.g. 'player attacks a mob', 'player trades with another player'", isRequired: true)] string scenario)
     {
-        return await _aiService.TraceSequenceAsync(scenario);
+        return await _signalR.TrackToolAsync("trace_sequence",
+            () => _aiService.TraceSequenceAsync(scenario));
     }
 
     [Function(nameof(GenerateDiagram))]
@@ -168,7 +182,8 @@ public class CimmeriaAiTools
         [McpToolProperty("subject", "What to diagram e.g. 'combat system', 'SGWPlayer inheritance', 'login flow'", isRequired: true)] string subject,
         [McpToolProperty("diagram_type", "Optional: classDiagram, sequenceDiagram, flowchart, stateDiagram-v2, graph. Default: auto-detect.")] string? diagramType)
     {
-        return await _aiService.GenerateDiagramAsync(subject, diagramType);
+        return await _signalR.TrackToolAsync("generate_diagram",
+            () => _aiService.GenerateDiagramAsync(subject, diagramType));
     }
 
     [Function(nameof(DecodeGameDesign))]
@@ -178,6 +193,7 @@ public class CimmeriaAiTools
         ToolInvocationContext context,
         [McpToolProperty("system_or_feature", "Game system or feature e.g. 'combat', 'missions', 'trading', 'gate travel', 'inventory'", isRequired: true)] string systemOrFeature)
     {
-        return await _aiService.DecodeGameDesignAsync(systemOrFeature);
+        return await _signalR.TrackToolAsync("decode_game_design",
+            () => _aiService.DecodeGameDesignAsync(systemOrFeature));
     }
 }

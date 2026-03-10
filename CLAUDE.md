@@ -34,10 +34,11 @@ cd src/CimmeriaMcp.Functions && func start
 ### Data Stores
 
 - **Azure AI Search** (`cimmeria-code` index) — hybrid text + HNSW vector search for `cimmeria-server` source, 505-dim `text-embedding-3-small` embeddings, cosine similarity. Populated by Cosmos DB indexer (5-min schedule).
-- **Cosmos DB NoSQL** (`cimmeria` database) — two containers:
+- **Cosmos DB NoSQL** (`cimmeria` database) — three containers:
   - `code-chunks` — embedded code snippets with vector index, partitioned by `/source_project`. Used as vector search fallback for `sgw-client` and `bigworld-engine` sources.
   - `knowledge-graph` — 4,801 vertices + 4,340 edges (entities, methods, properties, enums, types, game defs, C++ classes, worlds), partitioned by `/pk`
-- **Azure OpenAI** — `text-embedding-3-small` (embeddings), `gpt-5-4` deployment (AI skills)
+  - `leases` — change feed lease tracking for the IndexerTrigger function, partitioned by `/id`
+- **Azure OpenAI** — `text-embedding-3-small` (embeddings), `gpt-5.1-chat` (analysis/reasoning AI skills), `gpt-5.1-codex-mini` (code generation AI skills)
 
 ### Key Components
 
@@ -46,8 +47,12 @@ cd src/CimmeriaMcp.Functions && func start
 - **`Tools/CimmeriaAiTools.cs`** — 14 AI skill tools. Thin wrappers delegating to `CimmeriaSummarizationService`.
 - **`Services/CimmeriaSearchService.cs`** — Routes `cimmeria-server` queries to Azure AI Search (hybrid text + vector), falls back to Cosmos DB `VectorDistance()` for other sources. Internal constructor for testing.
 - **`Services/CimmeriaGraphService.cs`** — Queries Cosmos DB knowledge graph. Uses `Newtonsoft.Json.JsonConvert.SerializeObject()` (not System.Text.Json) because Cosmos SDK v3 returns `JObject` for dynamic queries.
-- **`Services/CimmeriaSummarizationService.cs`** — GPT-5.4 AI skills engine. Shared helpers: `GatherContextAsync()` (context-aware input gathering), `SearchCodeAsync()` (RAG), `GetEntityContextAsync()` (graph), `CallGptAsync()` (unified GPT call). Standardized response format via `ResponseFormatInstruction` constant and `Respond()` wrapper.
-- **`Program.cs`** — Host builder, DI registration (3 singleton services).
+- **`Services/CimmeriaSummarizationService.cs`** — Dual-model AI skills engine. `gpt-5.1-chat` for analysis/reasoning, `gpt-5.1-codex-mini` for code generation (stubs, translation, tests, diagrams). Shared helpers: `GatherContextAsync()`, `SearchCodeAsync()` (RAG), `GetEntityContextAsync()` (graph), `CallGptAsync()` (chat), `CallCodexAsync()` (codex). Standardized response format via `ResponseFormatInstruction` constant and `Respond()` wrapper.
+- **`Functions/IndexerTrigger.cs`** — Cosmos DB change feed trigger on `code-chunks`, 30-second debounce, calls AI Search indexer REST API on-demand.
+- **`Functions/SignalRHub.cs`** — SignalR negotiate endpoint + `CreateBroadcast()` helper for real-time tool invocation events.
+- **`Functions/MetricsEndpoint.cs`** — HTTP GET `/api/metrics` (anonymous auth), returns Azure Monitor metrics as JSON with CORS headers.
+- **`Services/MetricsService.cs`** — Azure Monitor metrics client using `DefaultAzureCredential`, queries App Insights / Cosmos DB / AI Search metrics, 60-second cache.
+- **`Program.cs`** — Host builder, DI registration (4 singleton services + HttpClient).
 - **`host.json`** — MCP extension config (`serverName`, `serverVersion`, `instructions`). Extension bundle `[4.0.0, 5.0.0)`.
 
 ### MCP Tools (34 total)
@@ -72,15 +77,17 @@ cd src/CimmeriaMcp.Functions && func start
 
 ### Infrastructure (`infra/`)
 
-Terraform and Bicep templates manage ALL Azure resources: Cosmos DB (account, database, 2 containers), Azure OpenAI (account + 5 model deployments), Azure AI Search, Service Plan (Y1), Function App. App settings are derived from resource references — no manual secret injection.
+Terraform and Bicep templates manage ALL Azure resources: Cosmos DB (account, database, 3 containers including `leases`), Azure OpenAI (account + 5 model deployments), Azure AI Search, Service Plan (Y1), Function App, Key Vault, App Configuration, Log Analytics, Application Insights, Static Web App, API Management (Consumption tier), Azure Automation (account + key rotation runbook + monthly schedule), SignalR Service (Free_F1), Portal Dashboard, Budget Alerts. App settings are derived from resource references — no manual secret injection.
 
-Key variables: `create_resource_group` (bool, for test deployments), `deploy_search` (bool, skip AI Search in tests — free tier limited to 1/sub), `cosmos_free_tier` (bool).
+Key variables: `create_resource_group` (bool, for test deployments), `deploy_search` (bool, skip AI Search in tests — free tier limited to 1/sub), `cosmos_free_tier` (bool), `deploy_showcase` (bool, gates all free-tier showcase resources).
+
+Additional NuGet packages: `Microsoft.Azure.Functions.Worker.Extensions.SignalRService`, `Microsoft.Azure.Functions.Worker.Extensions.CosmosDB`, `Azure.Monitor.Query`, `Azure.Identity`.
 
 **Important**: Do NOT set `FUNCTIONS_WORKER_RUNTIME` in `app_settings` when using `application_stack` in Terraform — they conflict. `always_on` must be `false` on Consumption plan.
 
 ### Testing (`src/CimmeriaMcp.Functions.Tests/`)
 
-xUnit test project with structural tests: search routing, method signatures, GPT deployment name, response format, AI skill completeness. Run with `dotnet test`.
+xUnit test project with 28 structural/contract tests: search routing, method signatures, GPT deployment name, response format, AI skill completeness, change feed trigger attributes, metrics service caching, metrics endpoint routing, SignalR negotiate + broadcast. Run with `dotnet test`.
 
 ### Pipelines (`pipelines/`)
 
@@ -98,6 +105,11 @@ Required in `local.settings.json` for local dev (gitignored):
 | `SEARCH_KEY` | Azure AI Search API key |
 | `COSMOS_ENDPOINT` | Azure Cosmos DB endpoint URL |
 | `COSMOS_KEY` | Azure Cosmos DB primary key |
+| `AzureSignalRConnectionString` | Azure SignalR Service connection string |
+| `COSMOS_CONNECTION_STRING` | Cosmos DB connection string (for change feed trigger) |
+| `APPINSIGHTS_RESOURCE_ID` | App Insights ARM resource ID (for metrics endpoint) |
+| `COSMOS_RESOURCE_ID` | Cosmos DB ARM resource ID (for metrics endpoint) |
+| `SEARCH_RESOURCE_ID` | AI Search ARM resource ID (for metrics endpoint) |
 
 ## Client Connection
 

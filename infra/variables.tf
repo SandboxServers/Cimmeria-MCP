@@ -94,7 +94,7 @@ variable "log_analytics_name" {
 variable "app_insights_name" {
   description = "Application Insights name"
   type        = string
-  default     = "cimmeria-mcp-insights"
+  default     = "cimmeria-mcp"
 }
 
 variable "app_config_name" {
@@ -119,4 +119,22 @@ variable "deploy_showcase" {
   description = "Deploy free-tier showcase resources (Key Vault, App Config, Monitoring)"
   type        = bool
   default     = true
+}
+
+variable "api_management_name" {
+  description = "Azure API Management name (globally unique)"
+  type        = string
+  default     = "cimmeria-mcp-apim"
+}
+
+variable "automation_account_name" {
+  description = "Azure Automation Account name"
+  type        = string
+  default     = "cimmeria-mcp-automation"
+}
+
+variable "signalr_name" {
+  description = "Azure SignalR Service name (globally unique)"
+  type        = string
+  default     = "cimmeria-mcp-signalr"
 }

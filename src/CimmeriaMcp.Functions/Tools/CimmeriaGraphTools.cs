@@ -7,10 +7,12 @@ namespace CimmeriaMcp.Functions.Tools;
 public class CimmeriaGraphTools
 {
     private readonly CimmeriaGraphService _graphService;
+    private readonly SignalRBroadcastService _signalR;
 
-    public CimmeriaGraphTools(CimmeriaGraphService graphService)
+    public CimmeriaGraphTools(CimmeriaGraphService graphService, SignalRBroadcastService signalR)
     {
         _graphService = graphService;
+        _signalR = signalR;
     }
 
     [Function(nameof(GetEntityDetails))]
@@ -20,7 +22,8 @@ public class CimmeriaGraphTools
         ToolInvocationContext context,
         [McpToolProperty("entity_name", "Entity or interface name e.g. SGWPlayer, SGWCombatant", isRequired: true)] string entityName)
     {
-        return await _graphService.GetEntityDetailsAsync(entityName);
+        return await _signalR.TrackToolAsync("get_entity_details",
+            () => _graphService.GetEntityDetailsAsync(entityName));
     }
 
     [Function(nameof(GetInheritanceTree))]
@@ -30,7 +33,8 @@ public class CimmeriaGraphTools
         ToolInvocationContext context,
         [McpToolProperty("entity_name", "Entity name e.g. SGWPlayer", isRequired: true)] string entityName)
     {
-        return await _graphService.GetInheritanceTreeAsync(entityName);
+        return await _signalR.TrackToolAsync("get_inheritance_tree",
+            () => _graphService.GetInheritanceTreeAsync(entityName));
     }
 
     [Function(nameof(GetGraphOverview))]
@@ -39,7 +43,8 @@ public class CimmeriaGraphTools
             "Get an overview of the SGW knowledge graph — vertex/edge counts, all entities, interfaces, and game systems.")]
         ToolInvocationContext context)
     {
-        return await _graphService.GetGraphOverviewAsync();
+        return await _signalR.TrackToolAsync("get_graph_overview",
+            () => _graphService.GetGraphOverviewAsync());
     }
 
     [Function(nameof(GetGameSystemDetails))]
@@ -49,7 +54,8 @@ public class CimmeriaGraphTools
         ToolInvocationContext context,
         [McpToolProperty("system_name", "Game system name e.g. combat, inventory, gate_travel", isRequired: true)] string systemName)
     {
-        return await _graphService.GetGameSystemDetailsAsync(systemName);
+        return await _signalR.TrackToolAsync("get_game_system_details",
+            () => _graphService.GetGameSystemDetailsAsync(systemName));
     }
 
     [Function(nameof(GetReplicatedProperties))]
@@ -59,7 +65,8 @@ public class CimmeriaGraphTools
         ToolInvocationContext context,
         [McpToolProperty("entity_name", "Entity name e.g. SGWPlayer, SGWMob", isRequired: true)] string entityName)
     {
-        return await _graphService.GetReplicatedPropertiesAsync(entityName);
+        return await _signalR.TrackToolAsync("get_replicated_properties",
+            () => _graphService.GetReplicatedPropertiesAsync(entityName));
     }
 
     [Function(nameof(GetMethodCallChain))]
@@ -70,7 +77,8 @@ public class CimmeriaGraphTools
         [McpToolProperty("entity_name", "Entity name e.g. SGWMob", isRequired: true)] string entityName,
         [McpToolProperty("method_name", "Method name e.g. threatGenerated, doAiAction", isRequired: true)] string methodName)
     {
-        return await _graphService.GetMethodCallChainAsync(entityName, methodName);
+        return await _signalR.TrackToolAsync("get_method_call_chain",
+            () => _graphService.GetMethodCallChainAsync(entityName, methodName));
     }
 
     [Function(nameof(TraverseGraph))]
@@ -83,7 +91,8 @@ public class CimmeriaGraphTools
         [McpToolProperty("depth", "Max traversal depth (1-5, default 2)")] int? depth)
     {
         var d = Math.Clamp(depth ?? 2, 1, 5);
-        return await _graphService.TraverseGraphAsync(startEntity, edgeType, d);
+        return await _signalR.TrackToolAsync("traverse_graph",
+            () => _graphService.TraverseGraphAsync(startEntity, edgeType, d));
     }
 
     // ====================================================================
@@ -98,7 +107,8 @@ public class CimmeriaGraphTools
         [McpToolProperty("enum_name", "Enumeration name e.g. EAbilityFlags, EDamageType, EArchetype")] string? enumName,
         [McpToolProperty("token_name", "Search for a token/constant by name e.g. ARCHETYPE_Soldier, GENDER_Male")] string? tokenName)
     {
-        return await _graphService.LookupEnumAsync(enumName ?? "", tokenName);
+        return await _signalR.TrackToolAsync("lookup_enum",
+            () => _graphService.LookupEnumAsync(enumName ?? "", tokenName));
     }
 
     [Function(nameof(ResolveType))]
@@ -108,7 +118,8 @@ public class CimmeriaGraphTools
         ToolInvocationContext context,
         [McpToolProperty("type_name", "Type name e.g. CharacterInfo, StatList, LootItemQuantity", isRequired: true)] string typeName)
     {
-        return await _graphService.ResolveTypeAsync(typeName);
+        return await _signalR.TrackToolAsync("resolve_type",
+            () => _graphService.ResolveTypeAsync(typeName));
     }
 
     // ====================================================================
@@ -122,7 +133,8 @@ public class CimmeriaGraphTools
         ToolInvocationContext context,
         [McpToolProperty("def_name", "Definition class name e.g. Ability, Item, Mission, LootTable", isRequired: true)] string defName)
     {
-        return await _graphService.LookupGameDefAsync(defName);
+        return await _signalR.TrackToolAsync("lookup_game_def",
+            () => _graphService.LookupGameDefAsync(defName));
     }
 
     // ====================================================================
@@ -136,7 +148,8 @@ public class CimmeriaGraphTools
         ToolInvocationContext context,
         [McpToolProperty("entity_name", "Entity name for per-method analysis, or omit for overview")] string? entityName)
     {
-        return await _graphService.GetImplementationStatusAsync(entityName);
+        return await _signalR.TrackToolAsync("get_implementation_status",
+            () => _graphService.GetImplementationStatusAsync(entityName));
     }
 
     // ====================================================================
@@ -150,7 +163,8 @@ public class CimmeriaGraphTools
         ToolInvocationContext context,
         [McpToolProperty("search_term", "Term to search for e.g. threatGenerated, Alignment, ARCHETYPE", isRequired: true)] string searchTerm)
     {
-        return await _graphService.CrossReferenceAsync(searchTerm);
+        return await _signalR.TrackToolAsync("cross_reference",
+            () => _graphService.CrossReferenceAsync(searchTerm));
     }
 
     // ====================================================================
@@ -164,7 +178,8 @@ public class CimmeriaGraphTools
         ToolInvocationContext context,
         [McpToolProperty("entity_name", "Entity name e.g. SGWPlayer, Account, SGWMob", isRequired: true)] string entityName)
     {
-        return await _graphService.GetEntityProtocolAsync(entityName);
+        return await _signalR.TrackToolAsync("get_entity_protocol",
+            () => _graphService.GetEntityProtocolAsync(entityName));
     }
 
     // ====================================================================
@@ -178,6 +193,7 @@ public class CimmeriaGraphTools
         ToolInvocationContext context,
         [McpToolProperty("api_name", "BigWorld API name e.g. time, addTimer, createEntity")] string? apiName)
     {
-        return await _graphService.LookupBigWorldApiAsync(apiName);
+        return await _signalR.TrackToolAsync("lookup_bigworld_api",
+            () => _graphService.LookupBigWorldApiAsync(apiName));
     }
 }

@@ -109,6 +109,16 @@ resource "azurerm_cosmosdb_sql_container" "code_chunks" {
   }
 }
 
+resource "azurerm_cosmosdb_sql_container" "leases" {
+  name                  = "leases"
+  resource_group_name   = local.rg_name
+  account_name          = azurerm_cosmosdb_account.cosmos.name
+  database_name         = azurerm_cosmosdb_sql_database.db.name
+  partition_key_paths   = ["/id"]
+  partition_key_version = 2
+  throughput            = 400
+}
+
 resource "azurerm_cosmosdb_sql_container" "knowledge_graph" {
   name                  = "knowledge-graph"
   resource_group_name   = local.rg_name
@@ -219,22 +229,48 @@ resource "azurerm_cognitive_deployment" "gpt_4_1" {
   depends_on = [azurerm_cognitive_deployment.gpt_4o]
 }
 
-resource "azurerm_cognitive_deployment" "gpt_5_4" {
-  name                 = "gpt-5-4"
+resource "azurerm_cognitive_deployment" "gpt_5_1_chat" {
+  name                 = "gpt-5-1-chat"
   cognitive_account_id = azurerm_cognitive_account.openai.id
 
   model {
     format  = "OpenAI"
-    name    = "gpt-5.4"
-    version = "2026-03-05"
+    name    = "gpt-5.1-chat"
+    version = "2025-11-13"
   }
 
   sku {
-    name     = "Standard"
+    name     = "GlobalStandard"
     capacity = 1
   }
 
+  lifecycle {
+    ignore_changes = [sku[0].capacity]
+  }
+
   depends_on = [azurerm_cognitive_deployment.gpt_4_1]
+}
+
+resource "azurerm_cognitive_deployment" "gpt_5_1_codex_mini" {
+  name                 = "gpt-5-1-codex-mini"
+  cognitive_account_id = azurerm_cognitive_account.openai.id
+
+  model {
+    format  = "OpenAI"
+    name    = "gpt-5.1-codex-mini"
+    version = "2025-11-13"
+  }
+
+  sku {
+    name     = "GlobalStandard"
+    capacity = 1
+  }
+
+  lifecycle {
+    ignore_changes = [sku[0].capacity]
+  }
+
+  depends_on = [azurerm_cognitive_deployment.gpt_5_1_chat]
 }
 
 # =============================================================================
@@ -265,7 +301,7 @@ resource "azurerm_key_vault" "vault" {
   sku_name                   = "standard"
   soft_delete_retention_days = 7
   purge_protection_enabled   = false
-  enable_rbac_authorization  = true
+  rbac_authorization_enabled = true
   tags                       = local.tags
 }
 
@@ -323,7 +359,7 @@ resource "azurerm_log_analytics_workspace" "logs" {
 resource "azurerm_application_insights" "insights" {
   count               = var.deploy_showcase ? 1 : 0
   name                = var.app_insights_name
-  location            = local.rg_location
+  location            = var.compute_location
   resource_group_name = local.rg_name
   workspace_id        = azurerm_log_analytics_workspace.logs[0].id
   application_type    = "web"
@@ -388,7 +424,7 @@ resource "azurerm_monitor_diagnostic_setting" "func_diagnostics" {
 resource "azurerm_static_web_app" "site" {
   count               = var.deploy_showcase ? 1 : 0
   name                = var.static_site_name
-  location            = local.rg_location
+  location            = var.compute_location
   resource_group_name = local.rg_name
   sku_tier            = "Free"
   sku_size            = "Free"
@@ -455,10 +491,17 @@ resource "azurerm_windows_function_app" "func" {
       "SEARCH_ENDPOINT" = "https://${azurerm_search_service.search[0].name}.search.windows.net"
       "SEARCH_KEY"      = var.deploy_showcase ? "@Microsoft.KeyVault(VaultName=${azurerm_key_vault.vault[0].name};SecretName=search-key)" : azurerm_search_service.search[0].primary_key
     } : {},
-    # Application Insights (when showcase enabled)
+    # Application Insights + SignalR + Metrics resource IDs (when showcase enabled)
     var.deploy_showcase ? {
       "APPINSIGHTS_INSTRUMENTATIONKEY"       = azurerm_application_insights.insights[0].instrumentation_key
       "APPLICATIONINSIGHTS_CONNECTION_STRING" = azurerm_application_insights.insights[0].connection_string
+      "AzureSignalRConnectionString"         = "@Microsoft.KeyVault(VaultName=${azurerm_key_vault.vault[0].name};SecretName=signalr-connection)"
+      "APPINSIGHTS_RESOURCE_ID"              = azurerm_application_insights.insights[0].id
+      "COSMOS_RESOURCE_ID"                   = azurerm_cosmosdb_account.cosmos.id
+      "COSMOS_CONNECTION_STRING"             = azurerm_cosmosdb_account.cosmos.primary_sql_connection_string
+    } : {},
+    var.deploy_showcase && var.deploy_search ? {
+      "SEARCH_RESOURCE_ID" = azurerm_search_service.search[0].id
     } : {}
   )
 
@@ -527,4 +570,178 @@ resource "azurerm_consumption_budget_resource_group" "budget" {
     threshold_type = "Forecasted"
     contact_groups = [azurerm_monitor_action_group.alerts[0].id]
   }
+}
+
+# =============================================================================
+# API Management (Consumption tier — 1M calls/month free)
+# =============================================================================
+
+resource "azurerm_api_management" "apim" {
+  count               = var.deploy_showcase ? 1 : 0
+  name                = var.api_management_name
+  location            = local.rg_location
+  resource_group_name = local.rg_name
+  publisher_name      = "Cimmeria MCP"
+  publisher_email     = var.alert_email != "" ? var.alert_email : "noreply@cimmeria-mcp.dev"
+  sku_name            = "Consumption_0"
+  tags                = local.tags
+}
+
+resource "azurerm_api_management_backend" "func_backend" {
+  count               = var.deploy_showcase ? 1 : 0
+  name                = "cimmeria-func"
+  resource_group_name = local.rg_name
+  api_management_name = azurerm_api_management.apim[0].name
+  protocol            = "http"
+  url                 = "https://${azurerm_windows_function_app.func.default_hostname}"
+}
+
+resource "azurerm_api_management_api" "mcp_api" {
+  count               = var.deploy_showcase ? 1 : 0
+  name                = "cimmeria-mcp-api"
+  resource_group_name = local.rg_name
+  api_management_name = azurerm_api_management.apim[0].name
+  revision            = "1"
+  display_name        = "Cimmeria MCP"
+  path                = "mcp"
+  protocols           = ["https"]
+  service_url         = "https://${azurerm_windows_function_app.func.default_hostname}"
+}
+
+# =============================================================================
+# Azure Automation (500 min/month free)
+# =============================================================================
+
+resource "azurerm_automation_account" "automation" {
+  count               = var.deploy_showcase ? 1 : 0
+  name                = var.automation_account_name
+  location            = local.rg_location
+  resource_group_name = local.rg_name
+  sku_name            = "Basic"
+  tags                = local.tags
+
+  identity {
+    type = "SystemAssigned"
+  }
+}
+
+# Automation Account → Contributor on RG (for key regeneration)
+resource "azurerm_role_assignment" "automation_contributor" {
+  count                = var.deploy_showcase ? 1 : 0
+  scope                = var.create_resource_group ? azurerm_resource_group.rg[0].id : data.azurerm_resource_group.rg[0].id
+  role_definition_name = "Contributor"
+  principal_id         = azurerm_automation_account.automation[0].identity[0].principal_id
+}
+
+# Automation Account → Key Vault Secrets Officer (to update secrets)
+resource "azurerm_role_assignment" "automation_kv_officer" {
+  count                = var.deploy_showcase ? 1 : 0
+  scope                = azurerm_key_vault.vault[0].id
+  role_definition_name = "Key Vault Secrets Officer"
+  principal_id         = azurerm_automation_account.automation[0].identity[0].principal_id
+}
+
+resource "azurerm_automation_runbook" "key_rotation" {
+  count                   = var.deploy_showcase ? 1 : 0
+  name                    = "Rotate-Keys"
+  location                = local.rg_location
+  resource_group_name     = local.rg_name
+  automation_account_name = azurerm_automation_account.automation[0].name
+  log_verbose             = false
+  log_progress            = true
+  runbook_type            = "PowerShell"
+  content                 = file("${path.module}/../scripts/Rotate-Keys.ps1")
+  tags                    = local.tags
+}
+
+resource "azurerm_automation_schedule" "monthly" {
+  count                   = var.deploy_showcase ? 1 : 0
+  name                    = "monthly-key-rotation"
+  resource_group_name     = local.rg_name
+  automation_account_name = azurerm_automation_account.automation[0].name
+  frequency               = "Month"
+  interval                = 1
+  start_time              = "2026-04-01T02:00:00Z"
+  timezone                = "UTC"
+}
+
+resource "azurerm_automation_job_schedule" "key_rotation_schedule" {
+  count                   = var.deploy_showcase ? 1 : 0
+  resource_group_name     = local.rg_name
+  automation_account_name = azurerm_automation_account.automation[0].name
+  schedule_name           = azurerm_automation_schedule.monthly[0].name
+  runbook_name            = azurerm_automation_runbook.key_rotation[0].name
+
+  parameters = {
+    resourcegroupname = local.rg_name
+    keyvaultname      = azurerm_key_vault.vault[0].name
+    cosmosaccountname = azurerm_cosmosdb_account.cosmos.name
+    openaiaccountname = azurerm_cognitive_account.openai.name
+    searchservicename = var.deploy_search ? azurerm_search_service.search[0].name : ""
+  }
+}
+
+# =============================================================================
+# Azure SignalR Service (Free tier — 20 connections, 20K messages/day)
+# =============================================================================
+
+resource "azurerm_signalr_service" "signalr" {
+  count               = var.deploy_showcase ? 1 : 0
+  name                = var.signalr_name
+  location            = local.rg_location
+  resource_group_name = local.rg_name
+  tags                = local.tags
+
+  sku {
+    name     = "Free_F1"
+    capacity = 1
+  }
+
+  connectivity_logs_enabled = false
+  messaging_logs_enabled    = false
+  service_mode              = "Serverless"
+}
+
+resource "azurerm_key_vault_secret" "signalr_connection" {
+  count        = var.deploy_showcase ? 1 : 0
+  name         = "signalr-connection"
+  value        = azurerm_signalr_service.signalr[0].primary_connection_string
+  key_vault_id = azurerm_key_vault.vault[0].id
+  depends_on   = [azurerm_role_assignment.deployer_kv_admin]
+}
+
+# =============================================================================
+# Monitoring Reader RBAC (for metrics endpoint)
+# =============================================================================
+
+resource "azurerm_role_assignment" "func_monitoring_reader" {
+  count                = var.deploy_showcase ? 1 : 0
+  scope                = var.create_resource_group ? azurerm_resource_group.rg[0].id : data.azurerm_resource_group.rg[0].id
+  role_definition_name = "Monitoring Reader"
+  principal_id         = azurerm_windows_function_app.func.identity[0].principal_id
+}
+
+# =============================================================================
+# Azure Portal Dashboard (free — IaC-defined)
+# =============================================================================
+
+resource "azurerm_portal_dashboard" "dashboard" {
+  count                = var.deploy_showcase ? 1 : 0
+  name                 = "cimmeria-mcp-dashboard"
+  resource_group_name  = local.rg_name
+  location             = local.rg_location
+  tags                 = local.tags
+  dashboard_properties = replace(
+    replace(
+      replace(
+        replace(
+          file("${path.module}/dashboard.json"),
+          "__FUNC_APP_ID__", azurerm_windows_function_app.func.id
+        ),
+        "__COSMOS_ID__", azurerm_cosmosdb_account.cosmos.id
+      ),
+      "__SEARCH_ID__", var.deploy_search ? azurerm_search_service.search[0].id : ""
+    ),
+    "__APPINSIGHTS_ID__", var.deploy_showcase ? azurerm_application_insights.insights[0].id : ""
+  )
 }

@@ -1,0 +1,703 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.41.2.15936",
+      "templateHash": "808686956398160427"
+    }
+  },
+  "parameters": {
+    "location": {
+      "type": "string",
+      "defaultValue": "eastus",
+      "metadata": {
+        "description": "Primary Azure region (OpenAI, AI Search)"
+      }
+    },
+    "computeLocation": {
+      "type": "string",
+      "defaultValue": "eastus2",
+      "metadata": {
+        "description": "Azure region for Cosmos DB, Service Plan, and Function App"
+      }
+    },
+    "functionAppName": {
+      "type": "string",
+      "defaultValue": "cimmeria-mcp",
+      "metadata": {
+        "description": "Name for the Function App"
+      }
+    },
+    "servicePlanName": {
+      "type": "string",
+      "defaultValue": "EastUS2Plan",
+      "metadata": {
+        "description": "App Service Plan name"
+      }
+    },
+    "storageAccountName": {
+      "type": "string",
+      "defaultValue": "ailabstoragesc",
+      "metadata": {
+        "description": "Storage account name"
+      }
+    },
+    "openaiAccountName": {
+      "type": "string",
+      "defaultValue": "ailab-openai-cady",
+      "metadata": {
+        "description": "Azure OpenAI account name"
+      }
+    },
+    "cosmosAccountName": {
+      "type": "string",
+      "defaultValue": "cimmeria-cosmos",
+      "metadata": {
+        "description": "Cosmos DB account name"
+      }
+    },
+    "searchServiceName": {
+      "type": "string",
+      "defaultValue": "ailab-search-sc",
+      "metadata": {
+        "description": "Azure AI Search service name"
+      }
+    },
+    "deploySearch": {
+      "type": "bool",
+      "defaultValue": true,
+      "metadata": {
+        "description": "Deploy Azure AI Search (false for testing — free tier limited to 1 per subscription)"
+      }
+    },
+    "cosmosFreeTier": {
+      "type": "bool",
+      "defaultValue": false,
+      "metadata": {
+        "description": "Enable Cosmos DB free tier (limited to 1 per subscription)"
+      }
+    },
+    "keyVaultName": {
+      "type": "string",
+      "defaultValue": "cimmeria-mcp-kv",
+      "metadata": {
+        "description": "Azure Key Vault name (globally unique)"
+      }
+    },
+    "logAnalyticsName": {
+      "type": "string",
+      "defaultValue": "cimmeria-mcp-logs",
+      "metadata": {
+        "description": "Log Analytics Workspace name"
+      }
+    },
+    "appInsightsName": {
+      "type": "string",
+      "defaultValue": "cimmeria-mcp-insights",
+      "metadata": {
+        "description": "Application Insights name"
+      }
+    },
+    "appConfigName": {
+      "type": "string",
+      "defaultValue": "cimmeria-mcp-config",
+      "metadata": {
+        "description": "Azure App Configuration name (globally unique)"
+      }
+    },
+    "staticSiteName": {
+      "type": "string",
+      "defaultValue": "cimmeria-mcp-site",
+      "metadata": {
+        "description": "Azure Static Web App name"
+      }
+    },
+    "alertEmail": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Email for budget and monitoring alerts (empty to skip)"
+      }
+    },
+    "deployShowcase": {
+      "type": "bool",
+      "defaultValue": true,
+      "metadata": {
+        "description": "Deploy free-tier showcase resources (Key Vault, App Config, Monitoring)"
+      }
+    }
+  },
+  "variables": {
+    "tags": {
+      "project": "cimmeria-mcp",
+      "managed-by": "bicep",
+      "purpose": "mcp-server"
+    }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.DocumentDB/databaseAccounts",
+      "apiVersion": "2024-05-15",
+      "name": "[parameters('cosmosAccountName')]",
+      "location": "[parameters('computeLocation')]",
+      "kind": "GlobalDocumentDB",
+      "tags": "[variables('tags')]",
+      "properties": {
+        "databaseAccountOfferType": "Standard",
+        "enableFreeTier": "[parameters('cosmosFreeTier')]",
+        "consistencyPolicy": {
+          "defaultConsistencyLevel": "Session"
+        },
+        "locations": [
+          {
+            "locationName": "[parameters('computeLocation')]",
+            "failoverPriority": 0
+          }
+        ],
+        "capabilities": [
+          {
+            "name": "EnableNoSQLVectorSearch"
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.DocumentDB/databaseAccounts/sqlDatabases",
+      "apiVersion": "2024-05-15",
+      "name": "[format('{0}/{1}', parameters('cosmosAccountName'), 'cimmeria')]",
+      "properties": {
+        "resource": {
+          "id": "cimmeria"
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.DocumentDB/databaseAccounts', parameters('cosmosAccountName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers",
+      "apiVersion": "2024-05-15",
+      "name": "[format('{0}/{1}/{2}', parameters('cosmosAccountName'), 'cimmeria', 'code-chunks')]",
+      "properties": {
+        "resource": {
+          "id": "code-chunks",
+          "partitionKey": {
+            "paths": [
+              "/source_project"
+            ],
+            "kind": "Hash"
+          },
+          "vectorEmbeddingPolicy": {
+            "vectorEmbeddings": [
+              {
+                "path": "/embedding",
+                "dataType": "float32",
+                "distanceFunction": "cosine",
+                "dimensions": 505
+              }
+            ]
+          },
+          "indexingPolicy": {
+            "indexingMode": "consistent",
+            "includedPaths": [
+              {
+                "path": "/*"
+              }
+            ],
+            "excludedPaths": [
+              {
+                "path": "/embedding/*"
+              },
+              {
+                "path": "/_etag/?"
+              }
+            ],
+            "vectorIndexes": [
+              {
+                "path": "/embedding",
+                "type": "flat"
+              }
+            ]
+          }
+        },
+        "options": {
+          "throughput": 400
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.DocumentDB/databaseAccounts/sqlDatabases', parameters('cosmosAccountName'), 'cimmeria')]"
+      ]
+    },
+    {
+      "type": "Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers",
+      "apiVersion": "2024-05-15",
+      "name": "[format('{0}/{1}/{2}', parameters('cosmosAccountName'), 'cimmeria', 'knowledge-graph')]",
+      "properties": {
+        "resource": {
+          "id": "knowledge-graph",
+          "partitionKey": {
+            "paths": [
+              "/pk"
+            ],
+            "kind": "Hash"
+          }
+        },
+        "options": {
+          "throughput": 400
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.DocumentDB/databaseAccounts/sqlDatabases', parameters('cosmosAccountName'), 'cimmeria')]"
+      ]
+    },
+    {
+      "type": "Microsoft.CognitiveServices/accounts",
+      "apiVersion": "2024-10-01",
+      "name": "[parameters('openaiAccountName')]",
+      "location": "[parameters('location')]",
+      "kind": "OpenAI",
+      "tags": "[variables('tags')]",
+      "sku": {
+        "name": "S0"
+      },
+      "properties": {}
+    },
+    {
+      "type": "Microsoft.CognitiveServices/accounts/deployments",
+      "apiVersion": "2024-10-01",
+      "name": "[format('{0}/{1}', parameters('openaiAccountName'), 'text-embedding-3-small')]",
+      "sku": {
+        "name": "Standard",
+        "capacity": 120
+      },
+      "properties": {
+        "model": {
+          "format": "OpenAI",
+          "name": "text-embedding-3-small",
+          "version": "1"
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.CognitiveServices/accounts', parameters('openaiAccountName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.CognitiveServices/accounts/deployments",
+      "apiVersion": "2024-10-01",
+      "name": "[format('{0}/{1}', parameters('openaiAccountName'), 'gpt-4o-mini')]",
+      "sku": {
+        "name": "Standard",
+        "capacity": 30
+      },
+      "properties": {
+        "model": {
+          "format": "OpenAI",
+          "name": "gpt-4o-mini",
+          "version": "2024-07-18"
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.CognitiveServices/accounts/deployments', parameters('openaiAccountName'), 'text-embedding-3-small')]",
+        "[resourceId('Microsoft.CognitiveServices/accounts', parameters('openaiAccountName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.CognitiveServices/accounts/deployments",
+      "apiVersion": "2024-10-01",
+      "name": "[format('{0}/{1}', parameters('openaiAccountName'), 'gpt-4o')]",
+      "sku": {
+        "name": "Standard",
+        "capacity": 30
+      },
+      "properties": {
+        "model": {
+          "format": "OpenAI",
+          "name": "gpt-4o",
+          "version": "2024-11-20"
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.CognitiveServices/accounts/deployments', parameters('openaiAccountName'), 'gpt-4o-mini')]",
+        "[resourceId('Microsoft.CognitiveServices/accounts', parameters('openaiAccountName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.CognitiveServices/accounts/deployments",
+      "apiVersion": "2024-10-01",
+      "name": "[format('{0}/{1}', parameters('openaiAccountName'), 'gpt-4-1')]",
+      "sku": {
+        "name": "Standard",
+        "capacity": 30
+      },
+      "properties": {
+        "model": {
+          "format": "OpenAI",
+          "name": "gpt-4.1",
+          "version": "2025-04-14"
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.CognitiveServices/accounts/deployments', parameters('openaiAccountName'), 'gpt-4o')]",
+        "[resourceId('Microsoft.CognitiveServices/accounts', parameters('openaiAccountName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.CognitiveServices/accounts/deployments",
+      "apiVersion": "2024-10-01",
+      "name": "[format('{0}/{1}', parameters('openaiAccountName'), 'gpt-5-4')]",
+      "sku": {
+        "name": "Standard",
+        "capacity": 1
+      },
+      "properties": {
+        "model": {
+          "format": "OpenAI",
+          "name": "gpt-5.4",
+          "version": "2026-03-05"
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.CognitiveServices/accounts/deployments', parameters('openaiAccountName'), 'gpt-4-1')]",
+        "[resourceId('Microsoft.CognitiveServices/accounts', parameters('openaiAccountName'))]"
+      ]
+    },
+    {
+      "condition": "[parameters('deploySearch')]",
+      "type": "Microsoft.Search/searchServices",
+      "apiVersion": "2024-06-01-preview",
+      "name": "[parameters('searchServiceName')]",
+      "location": "[parameters('location')]",
+      "tags": "[variables('tags')]",
+      "sku": {
+        "name": "free"
+      },
+      "properties": {}
+    },
+    {
+      "condition": "[parameters('deployShowcase')]",
+      "type": "Microsoft.KeyVault/vaults",
+      "apiVersion": "2023-07-01",
+      "name": "[parameters('keyVaultName')]",
+      "location": "[parameters('computeLocation')]",
+      "tags": "[variables('tags')]",
+      "properties": {
+        "tenantId": "[subscription().tenantId]",
+        "sku": {
+          "family": "A",
+          "name": "standard"
+        },
+        "enableRbacAuthorization": true,
+        "enableSoftDelete": true,
+        "softDeleteRetentionInDays": 7,
+        "enablePurgeProtection": false
+      }
+    },
+    {
+      "condition": "[parameters('deployShowcase')]",
+      "type": "Microsoft.KeyVault/vaults/secrets",
+      "apiVersion": "2023-07-01",
+      "name": "[format('{0}/{1}', parameters('keyVaultName'), 'openai-key')]",
+      "properties": {
+        "value": "[listKeys(resourceId('Microsoft.CognitiveServices/accounts', parameters('openaiAccountName')), '2024-10-01').key1]"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.CognitiveServices/accounts', parameters('openaiAccountName'))]",
+        "[resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName'))]"
+      ]
+    },
+    {
+      "condition": "[parameters('deployShowcase')]",
+      "type": "Microsoft.KeyVault/vaults/secrets",
+      "apiVersion": "2023-07-01",
+      "name": "[format('{0}/{1}', parameters('keyVaultName'), 'cosmos-key')]",
+      "properties": {
+        "value": "[listKeys(resourceId('Microsoft.DocumentDB/databaseAccounts', parameters('cosmosAccountName')), '2024-05-15').primaryMasterKey]"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.DocumentDB/databaseAccounts', parameters('cosmosAccountName'))]",
+        "[resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName'))]"
+      ]
+    },
+    {
+      "condition": "[and(parameters('deployShowcase'), parameters('deploySearch'))]",
+      "type": "Microsoft.KeyVault/vaults/secrets",
+      "apiVersion": "2023-07-01",
+      "name": "[format('{0}/{1}', parameters('keyVaultName'), 'search-key')]",
+      "properties": {
+        "value": "[listAdminKeys(resourceId('Microsoft.Search/searchServices', parameters('searchServiceName')), '2024-06-01-preview').primaryKey]"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Search/searchServices', parameters('searchServiceName'))]",
+        "[resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName'))]"
+      ]
+    },
+    {
+      "condition": "[parameters('deployShowcase')]",
+      "type": "Microsoft.OperationalInsights/workspaces",
+      "apiVersion": "2023-09-01",
+      "name": "[parameters('logAnalyticsName')]",
+      "location": "[parameters('computeLocation')]",
+      "tags": "[variables('tags')]",
+      "properties": {
+        "sku": {
+          "name": "PerGB2018"
+        },
+        "retentionInDays": 30
+      }
+    },
+    {
+      "condition": "[parameters('deployShowcase')]",
+      "type": "Microsoft.Insights/components",
+      "apiVersion": "2020-02-02",
+      "name": "[parameters('appInsightsName')]",
+      "location": "[parameters('computeLocation')]",
+      "kind": "web",
+      "tags": "[variables('tags')]",
+      "properties": {
+        "Application_Type": "web",
+        "WorkspaceResourceId": "[resourceId('Microsoft.OperationalInsights/workspaces', parameters('logAnalyticsName'))]"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.OperationalInsights/workspaces', parameters('logAnalyticsName'))]"
+      ]
+    },
+    {
+      "condition": "[parameters('deployShowcase')]",
+      "type": "Microsoft.AppConfiguration/configurationStores",
+      "apiVersion": "2023-03-01",
+      "name": "[parameters('appConfigName')]",
+      "location": "[parameters('computeLocation')]",
+      "sku": {
+        "name": "free"
+      }
+    },
+    {
+      "condition": "[parameters('deployShowcase')]",
+      "type": "Microsoft.Insights/diagnosticSettings",
+      "apiVersion": "2021-05-01-preview",
+      "scope": "[resourceId('Microsoft.DocumentDB/databaseAccounts', parameters('cosmosAccountName'))]",
+      "name": "cosmos-diagnostics",
+      "properties": {
+        "workspaceId": "[resourceId('Microsoft.OperationalInsights/workspaces', parameters('logAnalyticsName'))]",
+        "metrics": [
+          {
+            "category": "Requests",
+            "enabled": true
+          }
+        ]
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.DocumentDB/databaseAccounts', parameters('cosmosAccountName'))]",
+        "[resourceId('Microsoft.OperationalInsights/workspaces', parameters('logAnalyticsName'))]"
+      ]
+    },
+    {
+      "condition": "[parameters('deployShowcase')]",
+      "type": "Microsoft.Web/staticSites",
+      "apiVersion": "2023-12-01",
+      "name": "[parameters('staticSiteName')]",
+      "location": "[parameters('computeLocation')]",
+      "tags": "[variables('tags')]",
+      "sku": {
+        "name": "Free",
+        "tier": "Free"
+      },
+      "properties": {}
+    },
+    {
+      "type": "Microsoft.Web/serverfarms",
+      "apiVersion": "2024-04-01",
+      "name": "[parameters('servicePlanName')]",
+      "location": "[parameters('computeLocation')]",
+      "tags": "[variables('tags')]",
+      "sku": {
+        "name": "Y1",
+        "tier": "Dynamic"
+      },
+      "properties": {}
+    },
+    {
+      "type": "Microsoft.Web/sites",
+      "apiVersion": "2024-04-01",
+      "name": "[parameters('functionAppName')]",
+      "location": "[parameters('computeLocation')]",
+      "kind": "functionapp",
+      "tags": "[variables('tags')]",
+      "identity": {
+        "type": "SystemAssigned"
+      },
+      "properties": {
+        "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', parameters('servicePlanName'))]",
+        "siteConfig": {
+          "netFrameworkVersion": "v10.0",
+          "appSettings": "[union(createArray(createObject('name', 'AzureWebJobsStorage', 'value', format('DefaultEndpointsProtocol=https;AccountName={0};AccountKey={1};EndpointSuffix=core.windows.net', parameters('storageAccountName'), listKeys(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), '2023-05-01').keys[0].value)), createObject('name', 'FUNCTIONS_EXTENSION_VERSION', 'value', '~4'), createObject('name', 'FUNCTIONS_WORKER_RUNTIME', 'value', 'dotnet-isolated'), createObject('name', 'OPENAI_ENDPOINT', 'value', reference(resourceId('Microsoft.CognitiveServices/accounts', parameters('openaiAccountName')), '2024-10-01').endpoint), createObject('name', 'COSMOS_ENDPOINT', 'value', reference(resourceId('Microsoft.DocumentDB/databaseAccounts', parameters('cosmosAccountName')), '2024-05-15').documentEndpoint)), if(parameters('deployShowcase'), createArray(createObject('name', 'OPENAI_KEY', 'value', format('@Microsoft.KeyVault(VaultName={0};SecretName=openai-key)', parameters('keyVaultName'))), createObject('name', 'COSMOS_KEY', 'value', format('@Microsoft.KeyVault(VaultName={0};SecretName=cosmos-key)', parameters('keyVaultName'))), createObject('name', 'APPINSIGHTS_INSTRUMENTATIONKEY', 'value', reference(resourceId('Microsoft.Insights/components', parameters('appInsightsName')), '2020-02-02').InstrumentationKey), createObject('name', 'APPLICATIONINSIGHTS_CONNECTION_STRING', 'value', reference(resourceId('Microsoft.Insights/components', parameters('appInsightsName')), '2020-02-02').ConnectionString)), createArray(createObject('name', 'OPENAI_KEY', 'value', listKeys(resourceId('Microsoft.CognitiveServices/accounts', parameters('openaiAccountName')), '2024-10-01').key1), createObject('name', 'COSMOS_KEY', 'value', listKeys(resourceId('Microsoft.DocumentDB/databaseAccounts', parameters('cosmosAccountName')), '2024-05-15').primaryMasterKey))), if(parameters('deploySearch'), createArray(createObject('name', 'SEARCH_ENDPOINT', 'value', format('https://{0}.search.windows.net', parameters('searchServiceName'))), createObject('name', 'SEARCH_KEY', 'value', if(parameters('deployShowcase'), format('@Microsoft.KeyVault(VaultName={0};SecretName=search-key)', parameters('keyVaultName')), listAdminKeys(resourceId('Microsoft.Search/searchServices', parameters('searchServiceName')), '2024-06-01-preview').primaryKey))), createArray()))]"
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.DocumentDB/databaseAccounts', parameters('cosmosAccountName'))]",
+        "[resourceId('Microsoft.Insights/components', parameters('appInsightsName'))]",
+        "[resourceId('Microsoft.CognitiveServices/accounts', parameters('openaiAccountName'))]",
+        "[resourceId('Microsoft.Web/serverfarms', parameters('servicePlanName'))]",
+        "[resourceId('Microsoft.Search/searchServices', parameters('searchServiceName'))]",
+        "[resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName'))]"
+      ]
+    },
+    {
+      "condition": "[parameters('deployShowcase')]",
+      "type": "Microsoft.Insights/diagnosticSettings",
+      "apiVersion": "2021-05-01-preview",
+      "scope": "[resourceId('Microsoft.Web/sites', parameters('functionAppName'))]",
+      "name": "func-diagnostics",
+      "properties": {
+        "workspaceId": "[resourceId('Microsoft.OperationalInsights/workspaces', parameters('logAnalyticsName'))]",
+        "logs": [
+          {
+            "category": "FunctionAppLogs",
+            "enabled": true
+          }
+        ],
+        "metrics": [
+          {
+            "category": "AllMetrics",
+            "enabled": true
+          }
+        ]
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Web/sites', parameters('functionAppName'))]",
+        "[resourceId('Microsoft.OperationalInsights/workspaces', parameters('logAnalyticsName'))]"
+      ]
+    },
+    {
+      "condition": "[parameters('deployShowcase')]",
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName'))]",
+      "name": "[guid(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), resourceId('Microsoft.Web/sites', parameters('functionAppName')), '4633458b-17de-408a-b874-0445c86b69e6')]",
+      "properties": {
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '4633458b-17de-408a-b874-0445c86b69e6')]",
+        "principalId": "[reference(resourceId('Microsoft.Web/sites', parameters('functionAppName')), '2024-04-01', 'full').identity.principalId]",
+        "principalType": "ServicePrincipal"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Web/sites', parameters('functionAppName'))]",
+        "[resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName'))]"
+      ]
+    },
+    {
+      "condition": "[parameters('deployShowcase')]",
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.AppConfiguration/configurationStores', parameters('appConfigName'))]",
+      "name": "[guid(resourceId('Microsoft.AppConfiguration/configurationStores', parameters('appConfigName')), resourceId('Microsoft.Web/sites', parameters('functionAppName')), '516239f1-63e1-4d78-a4de-a74fb236a071')]",
+      "properties": {
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '516239f1-63e1-4d78-a4de-a74fb236a071')]",
+        "principalId": "[reference(resourceId('Microsoft.Web/sites', parameters('functionAppName')), '2024-04-01', 'full').identity.principalId]",
+        "principalType": "ServicePrincipal"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.AppConfiguration/configurationStores', parameters('appConfigName'))]",
+        "[resourceId('Microsoft.Web/sites', parameters('functionAppName'))]"
+      ]
+    },
+    {
+      "condition": "[and(parameters('deployShowcase'), not(equals(parameters('alertEmail'), '')))]",
+      "type": "Microsoft.Insights/actionGroups",
+      "apiVersion": "2023-01-01",
+      "name": "cimmeria-mcp-alerts",
+      "location": "global",
+      "tags": "[variables('tags')]",
+      "properties": {
+        "groupShortName": "cimmeria",
+        "enabled": true,
+        "emailReceivers": [
+          {
+            "name": "admin",
+            "emailAddress": "[parameters('alertEmail')]"
+          }
+        ]
+      }
+    },
+    {
+      "condition": "[and(parameters('deployShowcase'), not(equals(parameters('alertEmail'), '')))]",
+      "type": "Microsoft.Consumption/budgets",
+      "apiVersion": "2023-11-01",
+      "name": "cimmeria-mcp-monthly",
+      "properties": {
+        "category": "Cost",
+        "amount": 10,
+        "timeGrain": "Monthly",
+        "timePeriod": {
+          "startDate": "2026-03-01"
+        },
+        "notifications": {
+          "actual80": {
+            "enabled": true,
+            "operator": "GreaterThanOrEqualTo",
+            "threshold": 80,
+            "thresholdType": "Actual",
+            "contactGroups": [
+              "[resourceId('Microsoft.Insights/actionGroups', 'cimmeria-mcp-alerts')]"
+            ]
+          },
+          "forecast100": {
+            "enabled": true,
+            "operator": "GreaterThanOrEqualTo",
+            "threshold": 100,
+            "thresholdType": "Forecasted",
+            "contactGroups": [
+              "[resourceId('Microsoft.Insights/actionGroups', 'cimmeria-mcp-alerts')]"
+            ]
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Insights/actionGroups', 'cimmeria-mcp-alerts')]"
+      ]
+    }
+  ],
+  "outputs": {
+    "functionAppName": {
+      "type": "string",
+      "value": "[parameters('functionAppName')]"
+    },
+    "functionAppUrl": {
+      "type": "string",
+      "value": "[format('https://{0}', reference(resourceId('Microsoft.Web/sites', parameters('functionAppName')), '2024-04-01').defaultHostName)]"
+    },
+    "mcpEndpoint": {
+      "type": "string",
+      "value": "[format('https://{0}/runtime/webhooks/mcp', reference(resourceId('Microsoft.Web/sites', parameters('functionAppName')), '2024-04-01').defaultHostName)]"
+    },
+    "openaiEndpoint": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.CognitiveServices/accounts', parameters('openaiAccountName')), '2024-10-01').endpoint]"
+    },
+    "cosmosEndpoint": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.DocumentDB/databaseAccounts', parameters('cosmosAccountName')), '2024-05-15').documentEndpoint]"
+    },
+    "searchEndpoint": {
+      "type": "string",
+      "value": "[if(parameters('deploySearch'), format('https://{0}.search.windows.net', parameters('searchServiceName')), '')]"
+    },
+    "keyVaultUri": {
+      "type": "string",
+      "value": "[if(parameters('deployShowcase'), reference(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), '2023-07-01').vaultUri, '')]"
+    },
+    "appConfigEndpoint": {
+      "type": "string",
+      "value": "[if(parameters('deployShowcase'), reference(resourceId('Microsoft.AppConfiguration/configurationStores', parameters('appConfigName')), '2023-03-01').endpoint, '')]"
+    },
+    "functionAppPrincipalId": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Web/sites', parameters('functionAppName')), '2024-04-01', 'full').identity.principalId]"
+    },
+    "staticSiteUrl": {
+      "type": "string",
+      "value": "[if(parameters('deployShowcase'), format('https://{0}', reference(resourceId('Microsoft.Web/staticSites', parameters('staticSiteName')), '2023-12-01').defaultHostname), '')]"
+    }
+  }
+}

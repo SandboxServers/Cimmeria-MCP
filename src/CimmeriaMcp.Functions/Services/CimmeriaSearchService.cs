@@ -120,7 +120,7 @@ public class CimmeriaSearchService
                 file_path = result.Document.GetString("file_path"),
                 file_type = result.Document.GetString("file_type"),
                 content = result.Document.GetString("content"),
-                chunk_index = result.Document.TryGetValue("chunk_index", out var ci) ? (int)(long)ci : 0,
+                chunk_index = result.Document.TryGetValue("chunk_index", out var ci) ? Convert.ToInt32(ci) : 0,
                 source_project = result.Document.GetString("source_project"),
                 score = result.Score
             });
@@ -267,7 +267,7 @@ public class CimmeriaSearchService
                     file_path = result.Document.GetString("file_path"),
                     file_type = result.Document.GetString("file_type"),
                     content = result.Document.GetString("content"),
-                    chunk_index = result.Document.TryGetValue("chunk_index", out var ci) ? (int)(long)ci : 0,
+                    chunk_index = result.Document.TryGetValue("chunk_index", out var ci) ? Convert.ToInt32(ci) : 0,
                     source_project = result.Document.GetString("source_project"),
                     score = result.Score
                 });
@@ -411,7 +411,7 @@ public class CimmeriaSearchService
                     file_path = result.Document.GetString("file_path"),
                     file_type = result.Document.GetString("file_type"),
                     content = result.Document.GetString("content"),
-                    chunk_index = result.Document.TryGetValue("chunk_index", out var ci) ? (int)(long)ci : 0,
+                    chunk_index = result.Document.TryGetValue("chunk_index", out var ci) ? Convert.ToInt32(ci) : 0,
                     source_project = result.Document.GetString("source_project"),
                     score = result.Score
                 });

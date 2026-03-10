@@ -13,12 +13,14 @@ public class CimmeriaSummarizationService
     private const string CodeChunksContainer = "code-chunks";
     private const string GraphContainer = "knowledge-graph";
     private const string EmbeddingModel = "text-embedding-3-small";
-    private const string ChatModel = "gpt-5-4";
+    private const string ChatModel = "gpt-5-1-chat";
+    private const string CodexModel = "gpt-5-1-codex-mini";
 
     private readonly Container _codeContainer;
     private readonly Container _graphContainer;
     private readonly EmbeddingClient _embeddingClient;
     private readonly ChatClient _chatClient;
+    private readonly ChatClient _codexClient;
 
     private const string BigWorldPreamble = """
         BigWorld Architecture:
@@ -69,6 +71,7 @@ public class CimmeriaSummarizationService
             new AzureKeyCredential(openAiKey));
         _embeddingClient = azureOpenAiClient.GetEmbeddingClient(EmbeddingModel);
         _chatClient = azureOpenAiClient.GetChatClient(ChatModel);
+        _codexClient = azureOpenAiClient.GetChatClient(CodexModel);
     }
 
     // ====================================================================
@@ -301,12 +304,29 @@ public class CimmeriaSummarizationService
         return response.Value.Content[0].Text;
     }
 
-    private string Respond(string skill, object result)
+    private async Task<string> CallCodexAsync(string systemPrompt, string userPrompt,
+        int maxTokens = 4000, float temperature = 0.2f)
+    {
+        var messages = new List<ChatMessage>
+        {
+            new SystemChatMessage(systemPrompt),
+            new UserChatMessage(userPrompt),
+        };
+        var options = new ChatCompletionOptions
+        {
+            MaxOutputTokenCount = maxTokens,
+            Temperature = temperature,
+        };
+        var response = await _codexClient.CompleteChatAsync(messages, options);
+        return response.Value.Content[0].Text;
+    }
+
+    private string Respond(string skill, object result, string? modelOverride = null)
     {
         return JsonConvert.SerializeObject(new
         {
             skill,
-            model = ChatModel,
+            model = modelOverride ?? ChatModel,
             timestamp = DateTime.UtcNow.ToString("o"),
             result,
         }, Formatting.Indented);
@@ -451,16 +471,15 @@ public class CimmeriaSummarizationService
             Only output the Rust code, no explanation.
             """;
 
-        var code = await CallGptAsync(systemPrompt,
-            $"Generate Rust code for this entity:\n{ctx.EntitySpec}",
-            maxTokens: 4000, temperature: 0.2f);
+        var code = await CallCodexAsync(systemPrompt,
+            $"Generate Rust code for this entity:\n{ctx.EntitySpec}");
 
         return Respond("generate_stub", new
         {
             entity = entityName, parent = ctx.Parent, interfaces = ctx.Interfaces,
             property_count = ctx.Props.Count, method_count = ctx.Methods.Count,
             generated_code = code,
-        });
+        }, CodexModel);
     }
 
     // ====================================================================
@@ -676,7 +695,7 @@ public class CimmeriaSummarizationService
             {ResponseFormatInstruction}
             """;
 
-        var answer = await CallGptAsync(systemPrompt, $"""
+        var answer = await CallCodexAsync(systemPrompt, $"""
             Translate {entityName}{(methodName != null ? $".{methodName}" : "")} from Python to Rust:
 
             Entity Definition:
@@ -687,7 +706,7 @@ public class CimmeriaSummarizationService
 
             Python Source Code:
             {FormatCodeResults(ctx.CodeResults)}
-            """, maxTokens: 4000, temperature: 0.2f);
+            """);
 
         return Respond("translate_python_to_rust", new
         {
@@ -695,7 +714,7 @@ public class CimmeriaSummarizationService
             bigworld_apis_used = bwApis,
             rust_code = answer,
             python_sources = ctx.CodeResults.Select(r => new { file = r.path, relevance = Math.Round(1 - r.distance, 3) }),
-        });
+        }, CodexModel);
     }
 
     // ====================================================================
@@ -1129,7 +1148,7 @@ public class CimmeriaSummarizationService
             {ResponseFormatInstruction}
             """;
 
-        var answer = await CallGptAsync(systemPrompt, $"""
+        var answer = await CallCodexAsync(systemPrompt, $"""
             Generate Rust tests for {entityName}{(methodName != null ? $".{methodName}" : "")}:
 
             Entity Definition:
@@ -1140,14 +1159,14 @@ public class CimmeriaSummarizationService
 
             Python Behavioral Reference:
             {FormatCodeResults(ctx.CodeResults)}
-            """, maxTokens: 4000, temperature: 0.2f);
+            """);
 
         return Respond("generate_tests", new
         {
             entity = entityName, method = methodName,
             test_code = answer,
             python_sources = ctx.CodeResults.Select(r => new { file = r.path, relevance = Math.Round(1 - r.distance, 3) }),
-        });
+        }, CodexModel);
     }
 
     // ====================================================================
@@ -1212,7 +1231,7 @@ public class CimmeriaSummarizationService
             relationships.Take(100).Select(r => new { label = (string)r.label, from = (string)r.from_id, to = (string)r.to_id }),
             Formatting.Indented);
 
-        var answer = await CallGptAsync(systemPrompt, $"""
+        var answer = await CallCodexAsync(systemPrompt, $"""
             Generate a Mermaid diagram for: {subject}
 
             Entities/Systems: {string.Join(", ", entityNames)}
@@ -1221,14 +1240,14 @@ public class CimmeriaSummarizationService
             {relData}
 
             {ctx.FormatGraphContext()}
-            """, temperature: 0.2f);
+            """);
 
         return Respond("diagram", new
         {
             subject, diagram_type = type,
             entities = entityNames,
             mermaid = answer,
-        });
+        }, CodexModel);
     }
 
     // ====================================================================

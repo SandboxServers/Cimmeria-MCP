@@ -1,0 +1,241 @@
+{
+  "lenses": {
+    "0": {
+      "order": 0,
+      "parts": {
+        "0": {
+          "position": { "x": 0, "y": 0, "colSpan": 6, "rowSpan": 1 },
+          "metadata": {
+            "type": "Extension/HubsExtension/PartType/MarkdownPart",
+            "inputs": [],
+            "settings": {
+              "content": {
+                "settings": {
+                  "title": "Cimmeria MCP Server",
+                  "subtitle": "Operational Dashboard",
+                  "content": "Real-time metrics for the Cimmeria MCP Server infrastructure."
+                }
+              }
+            }
+          }
+        },
+        "1": {
+          "position": { "x": 6, "y": 0, "colSpan": 6, "rowSpan": 1 },
+          "metadata": {
+            "type": "Extension/HubsExtension/PartType/MarkdownPart",
+            "inputs": [],
+            "settings": {
+              "content": {
+                "settings": {
+                  "title": "Budget",
+                  "subtitle": "$10/month limit",
+                  "content": "Free-tier showcase — all resources optimized for zero/minimal cost."
+                }
+              }
+            }
+          }
+        },
+        "2": {
+          "position": { "x": 0, "y": 1, "colSpan": 6, "rowSpan": 4 },
+          "metadata": {
+            "type": "Extension/Microsoft_Azure_Monitoring/PartType/MetricsChartPart",
+            "inputs": [
+              {
+                "name": "queryInputs",
+                "value": {
+                  "id": "__FUNC_APP_ID__",
+                  "chartType": 2,
+                  "timespan": { "duration": "PT24H" },
+                  "metrics": [
+                    {
+                      "resourceMetadata": { "id": "__FUNC_APP_ID__" },
+                      "name": "FunctionExecutionCount",
+                      "aggregationType": 1,
+                      "metricVisualization": { "displayName": "Execution Count" }
+                    }
+                  ],
+                  "title": "Function Executions (24h)"
+                }
+              }
+            ]
+          }
+        },
+        "3": {
+          "position": { "x": 6, "y": 1, "colSpan": 6, "rowSpan": 4 },
+          "metadata": {
+            "type": "Extension/Microsoft_Azure_Monitoring/PartType/MetricsChartPart",
+            "inputs": [
+              {
+                "name": "queryInputs",
+                "value": {
+                  "id": "__FUNC_APP_ID__",
+                  "chartType": 2,
+                  "timespan": { "duration": "PT24H" },
+                  "metrics": [
+                    {
+                      "resourceMetadata": { "id": "__FUNC_APP_ID__" },
+                      "name": "FunctionExecutionUnits",
+                      "aggregationType": 4,
+                      "metricVisualization": { "displayName": "Avg Duration (ms)" }
+                    }
+                  ],
+                  "title": "Function Duration (24h)"
+                }
+              }
+            ]
+          }
+        },
+        "4": {
+          "position": { "x": 0, "y": 5, "colSpan": 6, "rowSpan": 4 },
+          "metadata": {
+            "type": "Extension/Microsoft_Azure_Monitoring/PartType/MetricsChartPart",
+            "inputs": [
+              {
+                "name": "queryInputs",
+                "value": {
+                  "id": "__COSMOS_ID__",
+                  "chartType": 2,
+                  "timespan": { "duration": "PT24H" },
+                  "metrics": [
+                    {
+                      "resourceMetadata": { "id": "__COSMOS_ID__" },
+                      "name": "NormalizedRUConsumption",
+                      "aggregationType": 3,
+                      "metricVisualization": { "displayName": "RU Consumption %" }
+                    }
+                  ],
+                  "title": "Cosmos DB RU Consumption (24h)"
+                }
+              }
+            ]
+          }
+        },
+        "5": {
+          "position": { "x": 6, "y": 5, "colSpan": 6, "rowSpan": 4 },
+          "metadata": {
+            "type": "Extension/Microsoft_Azure_Monitoring/PartType/MetricsChartPart",
+            "inputs": [
+              {
+                "name": "queryInputs",
+                "value": {
+                  "id": "__COSMOS_ID__",
+                  "chartType": 2,
+                  "timespan": { "duration": "PT24H" },
+                  "metrics": [
+                    {
+                      "resourceMetadata": { "id": "__COSMOS_ID__" },
+                      "name": "TotalRequests",
+                      "aggregationType": 1,
+                      "metricVisualization": { "displayName": "Total Requests" }
+                    }
+                  ],
+                  "title": "Cosmos DB Requests (24h)"
+                }
+              }
+            ]
+          }
+        },
+        "6": {
+          "position": { "x": 0, "y": 9, "colSpan": 6, "rowSpan": 4 },
+          "metadata": {
+            "type": "Extension/Microsoft_Azure_Monitoring/PartType/MetricsChartPart",
+            "inputs": [
+              {
+                "name": "queryInputs",
+                "value": {
+                  "id": "__SEARCH_ID__",
+                  "chartType": 2,
+                  "timespan": { "duration": "PT24H" },
+                  "metrics": [
+                    {
+                      "resourceMetadata": { "id": "__SEARCH_ID__" },
+                      "name": "SearchQueriesPerSecond",
+                      "aggregationType": 4,
+                      "metricVisualization": { "displayName": "Queries/sec" }
+                    }
+                  ],
+                  "title": "AI Search QPS (24h)"
+                }
+              }
+            ]
+          }
+        },
+        "7": {
+          "position": { "x": 6, "y": 9, "colSpan": 6, "rowSpan": 4 },
+          "metadata": {
+            "type": "Extension/Microsoft_Azure_Monitoring/PartType/MetricsChartPart",
+            "inputs": [
+              {
+                "name": "queryInputs",
+                "value": {
+                  "id": "__SEARCH_ID__",
+                  "chartType": 2,
+                  "timespan": { "duration": "PT24H" },
+                  "metrics": [
+                    {
+                      "resourceMetadata": { "id": "__SEARCH_ID__" },
+                      "name": "SearchLatency",
+                      "aggregationType": 4,
+                      "metricVisualization": { "displayName": "Avg Latency (ms)" }
+                    }
+                  ],
+                  "title": "AI Search Latency (24h)"
+                }
+              }
+            ]
+          }
+        },
+        "8": {
+          "position": { "x": 0, "y": 13, "colSpan": 6, "rowSpan": 4 },
+          "metadata": {
+            "type": "Extension/Microsoft_Azure_Monitoring/PartType/MetricsChartPart",
+            "inputs": [
+              {
+                "name": "queryInputs",
+                "value": {
+                  "id": "__APPINSIGHTS_ID__",
+                  "chartType": 2,
+                  "timespan": { "duration": "PT24H" },
+                  "metrics": [
+                    {
+                      "resourceMetadata": { "id": "__APPINSIGHTS_ID__" },
+                      "name": "requests/count",
+                      "aggregationType": 1,
+                      "metricVisualization": { "displayName": "Request Count" }
+                    }
+                  ],
+                  "title": "App Insights Requests (24h)"
+                }
+              }
+            ]
+          }
+        },
+        "9": {
+          "position": { "x": 6, "y": 13, "colSpan": 6, "rowSpan": 4 },
+          "metadata": {
+            "type": "Extension/Microsoft_Azure_Monitoring/PartType/MetricsChartPart",
+            "inputs": [
+              {
+                "name": "queryInputs",
+                "value": {
+                  "id": "__APPINSIGHTS_ID__",
+                  "chartType": 2,
+                  "timespan": { "duration": "PT24H" },
+                  "metrics": [
+                    {
+                      "resourceMetadata": { "id": "__APPINSIGHTS_ID__" },
+                      "name": "requests/duration",
+                      "aggregationType": 4,
+                      "metricVisualization": { "displayName": "Avg Response Time (ms)" }
+                    }
+                  ],
+                  "title": "App Insights Response Time (24h)"
+                }
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}

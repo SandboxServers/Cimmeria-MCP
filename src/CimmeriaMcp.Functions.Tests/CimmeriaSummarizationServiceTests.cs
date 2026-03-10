@@ -11,7 +11,16 @@ public class CimmeriaSummarizationServiceTests
         var field = typeof(Services.CimmeriaSummarizationService)
             .GetField("ChatModel", BindingFlags.NonPublic | BindingFlags.Static);
         Assert.NotNull(field);
-        Assert.Equal("gpt-5-4", field!.GetValue(null));
+        Assert.Equal("gpt-5-1-chat", field!.GetValue(null));
+    }
+
+    [Fact]
+    public void CodexModel_UsesGpt51CodexMini()
+    {
+        var field = typeof(Services.CimmeriaSummarizationService)
+            .GetField("CodexModel", BindingFlags.NonPublic | BindingFlags.Static);
+        Assert.NotNull(field);
+        Assert.Equal("gpt-5-1-codex-mini", field!.GetValue(null));
     }
 
     [Fact]

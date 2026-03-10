@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Cimmeria MCP Server</title>
-  <meta name="description" content="AI-powered codebase intelligence for the Cimmeria Stargate Worlds server emulator. 34 MCP tools across RAG search, knowledge graph, and GPT-5.4 AI skills.">
+  <meta name="description" content="AI-powered codebase intelligence for the Cimmeria Stargate Worlds server emulator. 34 MCP tools across RAG search, knowledge graph, and GPT-5.1 AI skills.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -120,9 +120,7 @@
       margin-bottom: 2.5rem;
     }
 
-    .stat {
-      text-align: center;
-    }
+    .stat { text-align: center; }
 
     .stat-value {
       font-family: 'JetBrains Mono', monospace;
@@ -221,10 +219,12 @@
     .architecture .hl-green { color: var(--green); }
     .architecture .hl-amber { color: var(--amber); }
 
+    /* ── Tool Category Cards ── */
     .tools-grid {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
       gap: 1.5rem;
+      margin-bottom: 3rem;
     }
 
     .tool-card {
@@ -292,6 +292,57 @@
       color: var(--text-dim);
     }
 
+    /* ── Tool Reference ── */
+    .tool-ref-category { margin-bottom: 2.5rem; }
+
+    .tool-ref-category > h3 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-bottom: 1rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .tool-ref-category > h3 .cat-icon { margin-right: 0.5rem; }
+
+    .tool-ref {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 0.5rem;
+      padding: 1rem 1.25rem;
+      margin-bottom: 0.75rem;
+    }
+
+    .tool-ref-name {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.85rem;
+      font-weight: 700;
+      margin-bottom: 0.35rem;
+    }
+
+    .tool-ref-name.search { color: var(--cyan); }
+    .tool-ref-name.graph { color: var(--accent); }
+    .tool-ref-name.ai { color: var(--green); }
+
+    .tool-ref-desc {
+      font-size: 0.85rem;
+      color: var(--text-dim);
+      margin-bottom: 0.5rem;
+    }
+
+    .tool-ref-sample {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.75rem;
+      background: rgba(0, 0, 0, 0.3);
+      border: 1px solid var(--border);
+      border-radius: 0.375rem;
+      padding: 0.5rem 0.75rem;
+      overflow-x: auto;
+      color: var(--text-dim);
+      white-space: pre;
+    }
+
+    /* ── Knowledge Graph ── */
     .graph-stats {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
@@ -318,6 +369,43 @@
       color: var(--text-dim);
     }
 
+    .graph-samples {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+      gap: 1rem;
+      margin-top: 2.5rem;
+    }
+
+    .graph-sample {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 0.75rem;
+      padding: 1.25rem;
+    }
+
+    .graph-sample h4 {
+      font-size: 0.9rem;
+      margin-bottom: 0.75rem;
+    }
+
+    .graph-sample pre {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.72rem;
+      background: rgba(0, 0, 0, 0.3);
+      border: 1px solid var(--border);
+      border-radius: 0.375rem;
+      padding: 0.75rem;
+      overflow-x: auto;
+      color: var(--text-dim);
+      white-space: pre;
+      line-height: 1.6;
+    }
+
+    .graph-sample pre .k { color: var(--accent); }
+    .graph-sample pre .s { color: var(--green); }
+    .graph-sample pre .n { color: var(--amber); }
+
+    /* ── Free Tier ── */
     .free-tier {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -331,10 +419,7 @@
       padding: 1.25rem;
     }
 
-    .tier-card h4 {
-      font-size: 0.95rem;
-      margin-bottom: 0.25rem;
-    }
+    .tier-card h4 { font-size: 0.95rem; margin-bottom: 0.25rem; }
 
     .tier-card .price {
       font-family: 'JetBrains Mono', monospace;
@@ -349,6 +434,131 @@
       margin-top: 0.5rem;
     }
 
+    /* ── Dashboard ── */
+    .dashboard-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+      gap: 1.5rem;
+      margin-bottom: 2rem;
+    }
+
+    .dashboard-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 0.75rem;
+      padding: 1.5rem;
+    }
+
+    .dashboard-card h3 {
+      font-size: 0.9rem;
+      color: var(--text-dim);
+      margin-bottom: 1rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .dashboard-card canvas {
+      width: 100% !important;
+      height: 200px !important;
+    }
+
+    .status-row {
+      display: flex;
+      gap: 1.5rem;
+      justify-content: center;
+      flex-wrap: wrap;
+      margin-bottom: 2rem;
+    }
+
+    .status-dot {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.85rem;
+      color: var(--text-dim);
+    }
+
+    .status-dot .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--text-dim);
+    }
+
+    .status-dot .dot.green { background: var(--green); }
+    .status-dot .dot.amber { background: var(--amber); }
+    .status-dot .dot.red { background: var(--rose); }
+
+    .dashboard-offline {
+      text-align: center;
+      padding: 3rem;
+      color: var(--text-dim);
+      font-style: italic;
+    }
+
+    /* ── Activity Feed ── */
+    .activity-feed {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 0.75rem;
+      padding: 1.5rem;
+      max-height: 400px;
+      overflow-y: auto;
+    }
+
+    .activity-feed h3 {
+      font-size: 0.9rem;
+      color: var(--text-dim);
+      margin-bottom: 1rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .activity-item {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.5rem 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.85rem;
+    }
+
+    .activity-item:last-child { border-bottom: none; }
+
+    .activity-item .tool-name {
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--cyan);
+    }
+
+    .activity-item .duration {
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--text-dim);
+      margin-left: auto;
+    }
+
+    .activity-item .status-badge {
+      font-size: 0.75rem;
+      padding: 0.15rem 0.4rem;
+      border-radius: 0.25rem;
+    }
+
+    .activity-item .status-badge.success {
+      background: rgba(34, 197, 94, 0.15);
+      color: var(--green);
+    }
+
+    .activity-item .status-badge.error {
+      background: rgba(244, 63, 94, 0.15);
+      color: var(--rose);
+    }
+
+    .activity-empty {
+      color: var(--text-dim);
+      text-align: center;
+      padding: 2rem;
+      font-style: italic;
+    }
+
     footer {
       border-top: 1px solid var(--border);
       padding: 2rem;
@@ -360,10 +570,66 @@
     footer a { color: var(--accent); text-decoration: none; }
     footer a:hover { text-decoration: underline; }
 
-    @media (max-width: 640px) {
-      .stats-row { gap: 1rem; }
+    /* ── Ultra-wide (1600px+) ── */
+    @media (min-width: 1600px) {
+      section { max-width: 1400px; }
+      .tools-grid { grid-template-columns: repeat(3, 1fr); }
+      .free-tier { grid-template-columns: repeat(4, 1fr); }
+      .dashboard-grid { grid-template-columns: repeat(2, 1fr); }
+      .graph-stats { grid-template-columns: repeat(6, 1fr); }
+      .graph-samples { grid-template-columns: repeat(2, 1fr); }
+    }
+
+    /* ── Tablet (768px - 1023px) ── */
+    @media (max-width: 1023px) {
       .tools-grid { grid-template-columns: 1fr; }
-      .architecture { font-size: 0.7rem; }
+      .dashboard-grid { grid-template-columns: 1fr; }
+      .free-tier { grid-template-columns: repeat(2, 1fr); }
+      .graph-stats { grid-template-columns: repeat(4, 1fr); }
+      .graph-samples { grid-template-columns: 1fr; }
+      .architecture { font-size: 0.75rem; }
+      section { padding: 3.5rem 1.5rem; }
+    }
+
+    /* ── Mobile (max 767px) ── */
+    @media (max-width: 767px) {
+      .hero { min-height: auto; padding: 4rem 1.25rem 3rem; }
+      h1 { font-size: 2rem; }
+      .subtitle { font-size: 1rem; }
+      .stats-row { gap: 1rem; }
+      .stat-value { font-size: 1.5rem; }
+      .cta-row { flex-direction: column; align-items: center; }
+      .btn { width: 100%; max-width: 280px; justify-content: center; }
+
+      section { padding: 2.5rem 1rem; }
+      .section-header h2 { font-size: 1.5rem; }
+
+      .tools-grid { grid-template-columns: 1fr; gap: 1rem; }
+      .free-tier { grid-template-columns: 1fr; gap: 0.75rem; }
+      .dashboard-grid { grid-template-columns: 1fr; gap: 1rem; }
+      .graph-stats { grid-template-columns: repeat(3, 1fr); gap: 0.75rem; }
+      .graph-stat .value { font-size: 1.2rem; }
+      .graph-samples { grid-template-columns: 1fr; }
+
+      .architecture { font-size: 0.65rem; padding: 1.25rem; line-height: 1.6; }
+      .activity-feed { max-height: 300px; }
+
+      .tool-ref { padding: 0.75rem 1rem; }
+      .tool-ref-sample { font-size: 0.65rem; }
+    }
+
+    /* ── Small mobile (max 420px) ── */
+    @media (max-width: 420px) {
+      h1 { font-size: 1.65rem; }
+      .stats-row { gap: 0.5rem 1rem; }
+      .stat-value { font-size: 1.25rem; }
+      .stat-label { font-size: 0.7rem; }
+      .graph-stats { grid-template-columns: repeat(2, 1fr); }
+      .graph-stat { padding: 0.75rem 0.5rem; }
+      .architecture { font-size: 0.55rem; padding: 1rem; }
+      .tool-tag { font-size: 0.65rem; padding: 0.2rem 0.4rem; }
+      .tier-card { padding: 1rem; }
+      .graph-sample pre { font-size: 0.62rem; padding: 0.5rem; }
     }
   </style>
 </head>
@@ -379,7 +645,7 @@
         AI-Powered Codebase Intelligence
       </h1>
       <p class="subtitle">
-        34 MCP tools for the Stargate Worlds server emulator. Hybrid RAG search, a 4,800-node knowledge graph, and GPT-5.4 AI skills &mdash; all served over Streamable HTTP from Azure Functions.
+        34 MCP tools for the Stargate Worlds server emulator. Hybrid RAG search, a 4,800-node knowledge graph, and dual-model AI skills (GPT-5.1 Chat + Codex) &mdash; all served over Streamable HTTP from Azure Functions.
       </p>
       <div class="stats-row">
         <div class="stat">
@@ -422,10 +688,10 @@
            ▼             ▼              ▼              ▼
     <span class="hl-cyan">Azure AI Search</span>   <span class="hl-green">Cosmos DB</span>     <span class="hl-amber">Azure OpenAI</span>   <span class="hl-accent">Key Vault</span>
     Hybrid text+vector  Knowledge     text-embedding   Secrets
-    HNSW 505-dim        Graph +       -3-small +       management
-    BM25 ranking        Vector        GPT-5.4          RBAC-based
-    (free tier)         Fallback      AI skills        (standard)
-                        (free tier)
+    HNSW 505-dim        Graph +       -3-small         management
+    BM25 ranking        Vector        GPT-5.1 Chat     RBAC-based
+    (free tier)         Fallback      GPT-5.1 Codex    (standard)
+                        (free tier)   (dual-model)
            │             │              │              │
            └─────────────┼──────────────┴──────────────┘
                          ▼
@@ -433,18 +699,21 @@
               Monitoring &amp; diagnostics (5 GB/month free)</div>
   </section>
 
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <!-- Tool Reference                                            -->
+  <!-- ══════════════════════════════════════════════════════════ -->
   <section id="tools">
     <div class="section-header">
       <h2>34 Tools, 3 Categories</h2>
       <p>From semantic search to full implementation planning &mdash; every tool Claude Code needs to understand and build on the codebase.</p>
     </div>
+
+    <!-- Category overview cards -->
     <div class="tools-grid">
       <div class="tool-card">
         <div class="tool-card-header">
           <div class="tool-icon search">&#x1F50D;</div>
-          <div>
-            <h3>RAG Search</h3>
-          </div>
+          <div><h3>RAG Search</h3></div>
           <span class="tool-count">6 tools</span>
         </div>
         <p>Hybrid text + vector search across the entire codebase. Azure AI Search for server code with Cosmos DB vector fallback for client assets and engine code.</p>
@@ -460,9 +729,7 @@
       <div class="tool-card">
         <div class="tool-card-header">
           <div class="tool-icon graph">&#x1F578;</div>
-          <div>
-            <h3>Knowledge Graph</h3>
-          </div>
+          <div><h3>Knowledge Graph</h3></div>
           <span class="tool-count">14 tools</span>
         </div>
         <p>4,801 vertices and 4,340 edges. Entities, methods, properties, inheritance trees, enums, type aliases, game definitions, and implementation coverage.</p>
@@ -486,12 +753,10 @@
       <div class="tool-card">
         <div class="tool-card-header">
           <div class="tool-icon ai">&#x2728;</div>
-          <div>
-            <h3>AI Skills</h3>
-          </div>
+          <div><h3>AI Skills</h3></div>
           <span class="tool-count">14 tools</span>
         </div>
-        <p>GPT-5.4 powered analysis combining RAG search and knowledge graph context. Code generation, translation, review, troubleshooting, and game design analysis.</p>
+        <p>Dual-model AI: GPT-5.1 Chat for analysis and reasoning, GPT-5.1 Codex Mini for code generation and translation. Both combine RAG search and knowledge graph context.</p>
         <div class="tool-list">
           <span class="tool-tag">explain_cimmeria</span>
           <span class="tool-tag">generate_entity_stub</span>
@@ -510,8 +775,194 @@
         </div>
       </div>
     </div>
+
+    <!-- Detailed tool reference -->
+    <div class="tool-ref-category">
+      <h3><span class="cat-icon">&#x1F50D;</span> RAG Search Tools</h3>
+      <div class="tool-ref">
+        <div class="tool-ref-name search">search_cimmeria</div>
+        <div class="tool-ref-desc">Semantic search across the Cimmeria server, SGW client, and BigWorld engine codebases. Returns code, docs, configs, and UI scripts ranked by relevance.</div>
+        <div class="tool-ref-sample">{ "query": "entity replication protocol", "source": "cimmeria-server", "top_k": 5 }</div>
+      </div>
+      <div class="tool-ref">
+        <div class="tool-ref-name search">list_cimmeria_files</div>
+        <div class="tool-ref-desc">List all indexed files, optionally filtered by extension or source project. Useful for discovering what's in the index.</div>
+        <div class="tool-ref-sample">{ "file_type": "rs", "source": "cimmeria-server" }</div>
+      </div>
+      <div class="tool-ref">
+        <div class="tool-ref-name search">get_file_content</div>
+        <div class="tool-ref-desc">Retrieve the full content of a specific file by path. Reassembles all chunks in order for multi-chunk files.</div>
+        <div class="tool-ref-sample">{ "file_path": "scripts/cell/SGWPlayer.py", "source": "cimmeria-server" }</div>
+      </div>
+      <div class="tool-ref">
+        <div class="tool-ref-name search">find_similar_code</div>
+        <div class="tool-ref-desc">Find code patterns similar to a given snippet using pure vector search across all indexed codebases.</div>
+        <div class="tool-ref-sample">{ "code_snippet": "fn handle_damage(&amp;mut self, amount: f32)", "top_k": 5 }</div>
+      </div>
+      <div class="tool-ref">
+        <div class="tool-ref-name search">get_project_overview</div>
+        <div class="tool-ref-desc">Get file counts by type, directory tree, index statistics, and available source projects. The bird's-eye view.</div>
+        <div class="tool-ref-sample">{ "source": "bigworld-engine" }</div>
+      </div>
+      <div class="tool-ref">
+        <div class="tool-ref-name search">search_by_directory</div>
+        <div class="tool-ref-desc">Semantic search scoped to a specific directory path prefix. Combines text + vector relevance within a directory subtree.</div>
+        <div class="tool-ref-sample">{ "path_prefix": "scripts/cell/", "query": "combat damage calculation", "top_k": 8 }</div>
+      </div>
+    </div>
+
+    <div class="tool-ref-category">
+      <h3><span class="cat-icon">&#x1F578;</span> Knowledge Graph Tools</h3>
+      <div class="tool-ref">
+        <div class="tool-ref-name graph">get_entity_details</div>
+        <div class="tool-ref-desc">Full details about an SGW entity or interface &mdash; properties, methods, inheritance, interfaces, and game system links. Lists all 18 entities and 17 interfaces.</div>
+        <div class="tool-ref-sample">{ "entity_name": "SGWPlayer" }</div>
+      </div>
+      <div class="tool-ref">
+        <div class="tool-ref-name graph">get_inheritance_tree</div>
+        <div class="tool-ref-desc">Full inheritance hierarchy for an entity &mdash; ancestors, descendants, and implemented interfaces.</div>
+        <div class="tool-ref-sample">{ "entity_name": "SGWMob" }</div>
+      </div>
+      <div class="tool-ref">
+        <div class="tool-ref-name graph">get_graph_overview</div>
+        <div class="tool-ref-desc">Overview of the entire knowledge graph &mdash; vertex/edge counts by type, all entities, interfaces, and game systems.</div>
+        <div class="tool-ref-sample">{}</div>
+      </div>
+      <div class="tool-ref">
+        <div class="tool-ref-name graph">get_game_system_details</div>
+        <div class="tool-ref-desc">Details about a game system (combat, inventory, missions, etc.) and its associated entities.</div>
+        <div class="tool-ref-sample">{ "system_name": "combat" }</div>
+      </div>
+      <div class="tool-ref">
+        <div class="tool-ref-name graph">get_replicated_properties</div>
+        <div class="tool-ref-desc">All client-visible (CELL_PUBLIC) properties for an entity, including inherited properties from the full chain.</div>
+        <div class="tool-ref-sample">{ "entity_name": "SGWPlayer" }</div>
+      </div>
+      <div class="tool-ref">
+        <div class="tool-ref-name graph">get_method_call_chain</div>
+        <div class="tool-ref-desc">Trace what a method calls (client RPCs, base/cell messages, BigWorld APIs) and what calls it.</div>
+        <div class="tool-ref-sample">{ "entity_name": "SGWMob", "method_name": "threatGenerated" }</div>
+      </div>
+      <div class="tool-ref">
+        <div class="tool-ref-name graph">traverse_graph</div>
+        <div class="tool-ref-desc">Walk the graph from a starting entity following a specific edge type (inherits, implements, sends_to_client, etc.) to a configurable depth.</div>
+        <div class="tool-ref-sample">{ "start_entity": "SGWPlayer", "edge_type": "implements", "depth": 2 }</div>
+      </div>
+      <div class="tool-ref">
+        <div class="tool-ref-name graph">lookup_enum</div>
+        <div class="tool-ref-desc">Look up SGW enumerations and constants by enum name or by token name. 124 enumerations + 1,276 constants.</div>
+        <div class="tool-ref-sample">{ "enum_name": "EDamageType" }</div>
+      </div>
+      <div class="tool-ref">
+        <div class="tool-ref-name graph">resolve_type</div>
+        <div class="tool-ref-desc">Resolve a BigWorld type alias to its full structure &mdash; simple aliases, arrays, and FIXED_DICT compound types with all fields.</div>
+        <div class="tool-ref-sample">{ "type_name": "CharacterInfo" }</div>
+      </div>
+      <div class="tool-ref">
+        <div class="tool-ref-name graph">lookup_game_def</div>
+        <div class="tool-ref-desc">Game data definition schemas &mdash; fields, cross-references to other defs, and enum references. Ability, Item, Mission, LootTable, and more.</div>
+        <div class="tool-ref-sample">{ "def_name": "Ability" }</div>
+      </div>
+      <div class="tool-ref">
+        <div class="tool-ref-name graph">get_implementation_status</div>
+        <div class="tool-ref-desc">Compare .def method definitions against Python and C++ implementations. Per-method or entity-wide coverage analysis.</div>
+        <div class="tool-ref-sample">{ "entity_name": "SGWPlayer" }</div>
+      </div>
+      <div class="tool-ref">
+        <div class="tool-ref-name graph">cross_reference</div>
+        <div class="tool-ref-desc">Search across the entire knowledge graph for a term &mdash; finds matching methods, properties, enums, constants, game defs, and call chains.</div>
+        <div class="tool-ref-sample">{ "search_term": "Alignment" }</div>
+      </div>
+      <div class="tool-ref">
+        <div class="tool-ref-name graph">get_entity_protocol</div>
+        <div class="tool-ref-desc">Complete client-server protocol contract for an entity &mdash; client methods, exposed base methods, cell methods, and auto-replicated properties.</div>
+        <div class="tool-ref-sample">{ "entity_name": "Account" }</div>
+      </div>
+      <div class="tool-ref">
+        <div class="tool-ref-name graph">lookup_bigworld_api</div>
+        <div class="tool-ref-desc">BigWorld engine API usage across the Python codebase with usage counts, callers, and C++ reimplementations.</div>
+        <div class="tool-ref-sample">{ "api_name": "addTimer" }</div>
+      </div>
+    </div>
+
+    <div class="tool-ref-category">
+      <h3><span class="cat-icon">&#x2728;</span> AI Skill Tools</h3>
+      <div class="tool-ref">
+        <div class="tool-ref-name ai">explain_cimmeria</div>
+        <div class="tool-ref-desc">Ask a question about the codebase and get an AI-synthesized answer. Combines RAG search + knowledge graph + GPT for coherent explanations.</div>
+        <div class="tool-ref-sample">{ "question": "How does the combat system handle threat?", "focus": "cimmeria-server" }</div>
+      </div>
+      <div class="tool-ref">
+        <div class="tool-ref-name ai">generate_entity_stub</div>
+        <div class="tool-ref-desc">Generate a Rust struct/impl stub for an SGW entity from its .def definition, with proper types, traits, and method declarations.</div>
+        <div class="tool-ref-sample">{ "entity_name": "SGWPlayer" }</div>
+      </div>
+      <div class="tool-ref">
+        <div class="tool-ref-name ai">translate_python_to_rust</div>
+        <div class="tool-ref-desc">Convert Python BigWorld entity scripts to idiomatic Rust. Translates BigWorld API calls, entity communication patterns, and Python idioms.</div>
+        <div class="tool-ref-sample">{ "entity_name": "SGWMob", "method_name": "doAiAction" }</div>
+      </div>
+      <div class="tool-ref">
+        <div class="tool-ref-name ai">generate_tests</div>
+        <div class="tool-ref-desc">Generate Rust #[test] functions derived from Python behavior, .def contracts, and protocol requirements.</div>
+        <div class="tool-ref-sample">{ "entity_name": "SGWPlayer", "method_name": "takeDamage" }</div>
+      </div>
+      <div class="tool-ref">
+        <div class="tool-ref-name ai">troubleshoot</div>
+        <div class="tool-ref-desc">Diagnose issues with Cimmeria server code. Checks for protocol mismatches, implementation gaps, type errors, and BigWorld API differences.</div>
+        <div class="tool-ref-sample">{ "description": "Client disconnects during trade", "entity_name": "SGWPlayer" }</div>
+      </div>
+      <div class="tool-ref">
+        <div class="tool-ref-name ai">review_code</div>
+        <div class="tool-ref-desc">Review Rust code against original SGW .def specifications and Python behavior. Issues rated CRITICAL / WARNING / INFO.</div>
+        <div class="tool-ref-sample">{ "code": "impl SGWPlayer { fn take_damage(...) { ... } }", "entity_name": "SGWPlayer" }</div>
+      </div>
+      <div class="tool-ref">
+        <div class="tool-ref-name ai">check_compatibility</div>
+        <div class="tool-ref-desc">Verify Rust code against the fixed SGW client binary. Checks every ClientMethod, BaseMethod, and CELL_PUBLIC property against .def specs.</div>
+        <div class="tool-ref-sample">{ "code": "impl SGWMob { ... }", "entity_name": "SGWMob" }</div>
+      </div>
+      <div class="tool-ref">
+        <div class="tool-ref-name ai">analyze_impact</div>
+        <div class="tool-ref-desc">Analyze the impact of changing a method or property. Traces dependents through call chains, cross-entity references, and inheritance.</div>
+        <div class="tool-ref-sample">{ "entity_name": "SGWBeing", "target_name": "hitPoints" }</div>
+      </div>
+      <div class="tool-ref">
+        <div class="tool-ref-name ai">plan_implementation</div>
+        <div class="tool-ref-desc">Create a detailed Rust implementation plan for an entity: struct definition, traits, method priority, dependencies, test strategy, file structure.</div>
+        <div class="tool-ref-sample">{ "entity_name": "SGWMob" }</div>
+      </div>
+      <div class="tool-ref">
+        <div class="tool-ref-name ai">whats_next</div>
+        <div class="tool-ref-desc">Recommend what to implement next based on coverage, dependency impact, and game importance across all entities.</div>
+        <div class="tool-ref-sample">{}</div>
+      </div>
+      <div class="tool-ref">
+        <div class="tool-ref-name ai">analyze_protocol</div>
+        <div class="tool-ref-desc">Analyze the client-server protocol for an entity or game system. Message catalog, data contracts, sequence diagrams, and compatibility notes.</div>
+        <div class="tool-ref-sample">{ "entity_or_system": "combat" }</div>
+      </div>
+      <div class="tool-ref">
+        <div class="tool-ref-name ai">trace_sequence</div>
+        <div class="tool-ref-desc">Trace the complete message sequence for a game scenario with step-by-step method calls, directions, data, and branching paths.</div>
+        <div class="tool-ref-sample">{ "scenario": "player loots a mob" }</div>
+      </div>
+      <div class="tool-ref">
+        <div class="tool-ref-name ai">generate_diagram</div>
+        <div class="tool-ref-desc">Generate Mermaid diagrams &mdash; class, sequence, flowchart, state, or dependency graphs. Output is renderable in any Mermaid-compatible tool.</div>
+        <div class="tool-ref-sample">{ "subject": "SGWPlayer inheritance", "diagram_type": "classDiagram" }</div>
+      </div>
+      <div class="tool-ref">
+        <div class="tool-ref-name ai">decode_game_design</div>
+        <div class="tool-ref-desc">Reverse-engineer the game design of an SGW feature from its code. Reconstructs gameplay loops, mechanics, progression, and player experience.</div>
+        <div class="tool-ref-sample">{ "system_or_feature": "gate travel" }</div>
+      </div>
+    </div>
   </section>
 
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <!-- Knowledge Graph                                           -->
+  <!-- ══════════════════════════════════════════════════════════ -->
   <section>
     <div class="section-header">
       <h2>Knowledge Graph</h2>
@@ -567,8 +1018,116 @@
         <div class="label">Entities</div>
       </div>
     </div>
+
+    <!-- Sample entries from the graph -->
+    <div class="graph-samples">
+      <div class="graph-sample">
+        <h4 style="color: var(--cyan)">Entity Vertex</h4>
+        <pre>{
+  <span class="k">"id"</span>: <span class="s">"entity:SGWPlayer"</span>,
+  <span class="k">"doc_type"</span>: <span class="s">"vertex"</span>,
+  <span class="k">"label"</span>: <span class="s">"entity"</span>,
+  <span class="k">"name"</span>: <span class="s">"SGWPlayer"</span>,
+  <span class="k">"parent"</span>: <span class="s">"SGWBeing"</span>,
+  <span class="k">"property_count"</span>: <span class="n">42</span>,
+  <span class="k">"client_method_count"</span>: <span class="n">31</span>,
+  <span class="k">"cell_method_count"</span>: <span class="n">48</span>,
+  <span class="k">"base_method_count"</span>: <span class="n">27</span>
+}</pre>
+      </div>
+      <div class="graph-sample">
+        <h4 style="color: var(--green)">Method Vertex</h4>
+        <pre>{
+  <span class="k">"id"</span>: <span class="s">"method:SGWMob:threatGenerated"</span>,
+  <span class="k">"doc_type"</span>: <span class="s">"vertex"</span>,
+  <span class="k">"label"</span>: <span class="s">"method"</span>,
+  <span class="k">"name"</span>: <span class="s">"threatGenerated"</span>,
+  <span class="k">"owner"</span>: <span class="s">"SGWMob"</span>,
+  <span class="k">"method_type"</span>: <span class="s">"CellMethod"</span>,
+  <span class="k">"args"</span>: <span class="s">"INT32 sourceID, FLOAT amount"</span>
+}</pre>
+      </div>
+      <div class="graph-sample">
+        <h4 style="color: var(--amber)">Property Vertex</h4>
+        <pre>{
+  <span class="k">"id"</span>: <span class="s">"prop:SGWBeing:hitPoints"</span>,
+  <span class="k">"doc_type"</span>: <span class="s">"vertex"</span>,
+  <span class="k">"label"</span>: <span class="s">"property"</span>,
+  <span class="k">"name"</span>: <span class="s">"hitPoints"</span>,
+  <span class="k">"owner"</span>: <span class="s">"SGWBeing"</span>,
+  <span class="k">"data_type"</span>: <span class="s">"INT32"</span>,
+  <span class="k">"flags"</span>: <span class="s">"CELL_PUBLIC"</span>
+}</pre>
+      </div>
+      <div class="graph-sample">
+        <h4 style="color: var(--rose)">Enum Vertex</h4>
+        <pre>{
+  <span class="k">"id"</span>: <span class="s">"enum:EDamageType"</span>,
+  <span class="k">"doc_type"</span>: <span class="s">"vertex"</span>,
+  <span class="k">"label"</span>: <span class="s">"enum"</span>,
+  <span class="k">"name"</span>: <span class="s">"EDamageType"</span>,
+  <span class="k">"tokens"</span>: [
+    <span class="s">"KINETIC"</span>, <span class="s">"ENERGY"</span>,
+    <span class="s">"BIO"</span>, <span class="s">"QUANTUM"</span>
+  ]
+}</pre>
+      </div>
+      <div class="graph-sample">
+        <h4 style="color: var(--accent)">Type Alias Vertex</h4>
+        <pre>{
+  <span class="k">"id"</span>: <span class="s">"type:CharacterInfo"</span>,
+  <span class="k">"doc_type"</span>: <span class="s">"vertex"</span>,
+  <span class="k">"label"</span>: <span class="s">"type_alias"</span>,
+  <span class="k">"name"</span>: <span class="s">"CharacterInfo"</span>,
+  <span class="k">"alias_type"</span>: <span class="s">"FIXED_DICT"</span>,
+  <span class="k">"fields"</span>: [
+    { <span class="k">"name"</span>: <span class="s">"characterName"</span>, <span class="k">"type"</span>: <span class="s">"WSTRING"</span> },
+    { <span class="k">"name"</span>: <span class="s">"archetype"</span>, <span class="k">"type"</span>: <span class="s">"UINT8"</span> },
+    { <span class="k">"name"</span>: <span class="s">"level"</span>, <span class="k">"type"</span>: <span class="s">"UINT8"</span> }
+  ]
+}</pre>
+      </div>
+      <div class="graph-sample">
+        <h4 style="color: var(--green)">Game System Vertex</h4>
+        <pre>{
+  <span class="k">"id"</span>: <span class="s">"system:combat"</span>,
+  <span class="k">"doc_type"</span>: <span class="s">"vertex"</span>,
+  <span class="k">"label"</span>: <span class="s">"game_system"</span>,
+  <span class="k">"name"</span>: <span class="s">"combat"</span>,
+  <span class="k">"description"</span>: <span class="s">"Turn-based combat with
+  abilities, damage types, and threat"</span>,
+  <span class="k">"keywords"</span>: [<span class="s">"damage"</span>, <span class="s">"threat"</span>, <span class="s">"ability"</span>]
+}</pre>
+      </div>
+      <div class="graph-sample">
+        <h4 style="color: var(--amber)">Game Definition Vertex</h4>
+        <pre>{
+  <span class="k">"id"</span>: <span class="s">"gamedef:Ability"</span>,
+  <span class="k">"doc_type"</span>: <span class="s">"vertex"</span>,
+  <span class="k">"label"</span>: <span class="s">"game_def"</span>,
+  <span class="k">"name"</span>: <span class="s">"Ability"</span>,
+  <span class="k">"fields"</span>: [<span class="s">"abilityID"</span>, <span class="s">"name"</span>,
+    <span class="s">"cooldown"</span>, <span class="s">"castTime"</span>,
+    <span class="s">"range"</span>, <span class="s">"effects"</span>],
+  <span class="k">"references"</span>: [<span class="s">"Effect"</span>, <span class="s">"AbilitySet"</span>]
+}</pre>
+      </div>
+      <div class="graph-sample">
+        <h4 style="color: var(--text-dim)">Edge (Relationship)</h4>
+        <pre>{
+  <span class="k">"id"</span>: <span class="s">"edge:SGWPlayer:inherits:SGWBeing"</span>,
+  <span class="k">"doc_type"</span>: <span class="s">"edge"</span>,
+  <span class="k">"label"</span>: <span class="s">"inherits"</span>,
+  <span class="k">"from_id"</span>: <span class="s">"entity:SGWPlayer"</span>,
+  <span class="k">"to_id"</span>: <span class="s">"entity:SGWBeing"</span>
+}</pre>
+      </div>
+    </div>
   </section>
 
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <!-- Free Tier                                                 -->
+  <!-- ══════════════════════════════════════════════════════════ -->
   <section>
     <div class="section-header">
       <h2>Built on Azure Free Tier</h2>
@@ -638,11 +1197,102 @@
       <div class="tier-card">
         <h4>Azure OpenAI</h4>
         <div class="price">Pay-per-token</div>
-        <p>text-embedding-3-small + GPT-5.4. Only pay when tools are called.</p>
+        <p>text-embedding-3-small + GPT-5.1. Only pay when tools are called.</p>
+      </div>
+      <div class="tier-card">
+        <h4>API Management</h4>
+        <div class="price">FREE</div>
+        <p>Consumption tier, 1M calls/month. Rate limiting, analytics, developer portal.</p>
+      </div>
+      <div class="tier-card">
+        <h4>Change Feed Trigger</h4>
+        <div class="price">FREE</div>
+        <p>Near-real-time indexing via Cosmos DB change feed with 30-second debounce.</p>
+      </div>
+      <div class="tier-card">
+        <h4>Azure Automation</h4>
+        <div class="price">FREE</div>
+        <p>500 min/month. Automated monthly key rotation for Cosmos, OpenAI, AI Search.</p>
+      </div>
+      <div class="tier-card">
+        <h4>SignalR Service</h4>
+        <div class="price">FREE</div>
+        <p>20 connections, 20K msg/day. Live activity feed of MCP tool invocations.</p>
+      </div>
+      <div class="tier-card">
+        <h4>Portal Dashboard</h4>
+        <div class="price">FREE</div>
+        <p>IaC-defined Azure Portal dashboard with real-time metrics tiles.</p>
       </div>
     </div>
   </section>
 
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <!-- Live Dashboard                                            -->
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <section id="dashboard">
+    <div class="section-header">
+      <h2>Live Dashboard</h2>
+      <p>Real-time metrics from the MCP server infrastructure, refreshed every 60 seconds.</p>
+    </div>
+    <div id="dashboard-content">
+      <div class="status-row" id="status-indicators">
+        <div class="status-dot"><span class="dot" id="dot-insights"></span> App Insights</div>
+        <div class="status-dot"><span class="dot" id="dot-cosmos"></span> Cosmos DB</div>
+        <div class="status-dot"><span class="dot" id="dot-search"></span> AI Search</div>
+      </div>
+      <div class="dashboard-grid">
+        <div class="dashboard-card">
+          <h3>Requests (24h)</h3>
+          <canvas id="chart-requests"></canvas>
+        </div>
+        <div class="dashboard-card">
+          <h3>Response Time (24h)</h3>
+          <canvas id="chart-duration"></canvas>
+        </div>
+        <div class="dashboard-card">
+          <h3>Failed Requests (24h)</h3>
+          <canvas id="chart-failed"></canvas>
+        </div>
+        <div class="dashboard-card">
+          <h3>Cosmos DB RU Consumption (24h)</h3>
+          <canvas id="chart-cosmos-ru"></canvas>
+        </div>
+        <div class="dashboard-card">
+          <h3>Cosmos DB Requests (24h)</h3>
+          <canvas id="chart-cosmos-reqs"></canvas>
+        </div>
+        <div class="dashboard-card">
+          <h3>AI Search Latency (24h)</h3>
+          <canvas id="chart-search-latency"></canvas>
+        </div>
+        <div class="dashboard-card">
+          <h3>AI Search QPS (24h)</h3>
+          <canvas id="chart-search-qps"></canvas>
+        </div>
+      </div>
+    </div>
+    <div id="dashboard-offline" class="dashboard-offline" style="display:none">
+      Dashboard offline &mdash; metrics endpoint unreachable
+    </div>
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <!-- Live Activity                                             -->
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <section id="activity">
+    <div class="section-header">
+      <h2>Live Activity</h2>
+      <p>Real-time stream of MCP tool invocations via Azure SignalR.</p>
+    </div>
+    <div class="activity-feed" id="activity-feed">
+      <div class="activity-empty" id="activity-empty">Waiting for tool invocations...</div>
+    </div>
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <!-- Connect                                                   -->
+  <!-- ══════════════════════════════════════════════════════════ -->
   <section>
     <div class="section-header">
       <h2>Connect in Seconds</h2>
@@ -666,5 +1316,128 @@
       Built with Azure Functions MCP Extension
     </p>
   </footer>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@microsoft/signalr@8/dist/browser/signalr.min.js"></script>
+  <script>
+    // ── Dashboard ──
+    const METRICS_URL = 'https://cimmeria-mcp.azurewebsites.net/api/metrics';
+    const chartDefaults = {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { grid: { color: '#1e1e2e' }, ticks: { color: '#8888a0', maxTicksLimit: 6 } },
+        y: { grid: { color: '#1e1e2e' }, ticks: { color: '#8888a0' }, beginAtZero: true }
+      }
+    };
+    const charts = {};
+
+    function createChart(id, label, color) {
+      const ctx = document.getElementById(id);
+      if (!ctx) return null;
+      return new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: [],
+          datasets: [{ label, data: [], borderColor: color, backgroundColor: color + '20', fill: true, tension: 0.3, pointRadius: 0 }]
+        },
+        options: chartDefaults
+      });
+    }
+
+    function updateChart(chart, points) {
+      if (!chart || !points || !points.length) return;
+      chart.data.labels = points.map(p => new Date(p.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+      chart.data.datasets[0].data = points.map(p => p.value);
+      chart.update('none');
+    }
+
+    function setDot(id, available) {
+      const dot = document.getElementById(id);
+      if (dot) {
+        dot.classList.remove('green', 'amber', 'red');
+        dot.classList.add(available ? 'green' : 'red');
+      }
+    }
+
+    async function refreshDashboard() {
+      try {
+        const res = await fetch(METRICS_URL);
+        if (!res.ok) throw new Error(res.status);
+        const data = await res.json();
+
+        document.getElementById('dashboard-content').style.display = '';
+        document.getElementById('dashboard-offline').style.display = 'none';
+
+        setDot('dot-insights', data.appInsights?.available);
+        setDot('dot-cosmos', data.cosmos?.available);
+        setDot('dot-search', data.search?.available);
+
+        if (data.appInsights?.available) {
+          updateChart(charts.requests, data.appInsights.requestCount);
+          updateChart(charts.duration, data.appInsights.avgDuration);
+          updateChart(charts.failed, data.appInsights.failedCount);
+        }
+        if (data.cosmos?.available) {
+          updateChart(charts.cosmosRu, data.cosmos.ruConsumption);
+          updateChart(charts.cosmosReqs, data.cosmos.totalRequests);
+        }
+        if (data.search?.available) {
+          updateChart(charts.searchLatency, data.search.latency);
+          updateChart(charts.searchQps, data.search.qps);
+        }
+      } catch {
+        document.getElementById('dashboard-content').style.display = 'none';
+        document.getElementById('dashboard-offline').style.display = '';
+      }
+    }
+
+    if (typeof Chart !== 'undefined') {
+      Chart.defaults.color = '#8888a0';
+      Chart.defaults.borderColor = '#1e1e2e';
+      charts.requests      = createChart('chart-requests', 'Requests', '#6366f1');
+      charts.duration       = createChart('chart-duration', 'Duration (ms)', '#06b6d4');
+      charts.failed         = createChart('chart-failed', 'Failed', '#f43f5e');
+      charts.cosmosRu       = createChart('chart-cosmos-ru', 'RU %', '#22c55e');
+      charts.cosmosReqs     = createChart('chart-cosmos-reqs', 'Requests', '#f59e0b');
+      charts.searchLatency  = createChart('chart-search-latency', 'Latency (ms)', '#f59e0b');
+      charts.searchQps      = createChart('chart-search-qps', 'QPS', '#06b6d4');
+      refreshDashboard();
+      setInterval(refreshDashboard, 60000);
+    }
+
+    // ── SignalR Activity Feed ──
+    const SIGNALR_URL = 'https://cimmeria-mcp.azurewebsites.net/api';
+    const MAX_EVENTS = 50;
+
+    if (typeof signalR !== 'undefined') {
+      const connection = new signalR.HubConnectionBuilder()
+        .withUrl(SIGNALR_URL)
+        .withAutomaticReconnect()
+        .build();
+
+      connection.on('toolInvocation', (event) => {
+        const feed = document.getElementById('activity-feed');
+        const empty = document.getElementById('activity-empty');
+        if (empty) empty.remove();
+
+        const item = document.createElement('div');
+        item.className = 'activity-item';
+        const statusClass = event.status === 'success' ? 'success' : 'error';
+        const time = new Date(event.timestamp).toLocaleTimeString();
+        item.innerHTML = `
+          <span class="tool-name">${event.tool}</span>
+          <span class="status-badge ${statusClass}">${event.status}</span>
+          <span class="duration">${event.durationMs}ms &middot; ${time}</span>
+        `;
+        feed.insertBefore(item, feed.firstChild);
+
+        while (feed.children.length > MAX_EVENTS) feed.removeChild(feed.lastChild);
+      });
+
+      connection.start().catch(() => {});
+    }
+  </script>
 </body>
 </html>
