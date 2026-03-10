@@ -12,10 +12,10 @@ Uses the **Azure Functions MCP Extension** (`Microsoft.Azure.Functions.Worker.Ex
 
 ```bash
 # Build
-dotnet build src/CimmeriaMcp.Functions
+dotnet build
 
-# Restore only
-dotnet restore src/CimmeriaMcp.Functions
+# Test
+dotnet test
 
 # Publish (release)
 dotnet publish src/CimmeriaMcp.Functions -c Release -o ./publish
@@ -33,18 +33,18 @@ cd src/CimmeriaMcp.Functions && func start
 
 ### Data Stores
 
-- **Azure AI Search** (`cimmeria-code` index) — hybrid text + vector search over code chunks, `text-embedding-3-small` embeddings
+- **Azure AI Search** (`cimmeria-code` index) — hybrid text + HNSW vector search for `cimmeria-server` source, 505-dim `text-embedding-3-small` embeddings, cosine similarity. Populated by Cosmos DB indexer (5-min schedule).
 - **Cosmos DB NoSQL** (`cimmeria` database) — two containers:
-  - `code-chunks` — embedded code snippets with vector index, partitioned by `/source_project`
+  - `code-chunks` — embedded code snippets with vector index, partitioned by `/source_project`. Used as vector search fallback for `sgw-client` and `bigworld-engine` sources.
   - `knowledge-graph` — 4,801 vertices + 4,340 edges (entities, methods, properties, enums, types, game defs, C++ classes, worlds), partitioned by `/pk`
-- **Azure OpenAI** — `text-embedding-3-small` (embeddings), `gpt-5.4` (all AI skills)
+- **Azure OpenAI** — `text-embedding-3-small` (embeddings), `gpt-5-4` deployment (AI skills)
 
 ### Key Components
 
 - **`Tools/CimmeriaSearchTools.cs`** — 6 RAG search tools. Thin wrappers delegating to `CimmeriaSearchService`.
 - **`Tools/CimmeriaGraphTools.cs`** — 14 knowledge graph tools. Thin wrappers delegating to `CimmeriaGraphService`.
 - **`Tools/CimmeriaAiTools.cs`** — 14 AI skill tools. Thin wrappers delegating to `CimmeriaSummarizationService`.
-- **`Services/CimmeriaSearchService.cs`** — Embeds queries via Azure OpenAI, performs hybrid search against Azure AI Search.
+- **`Services/CimmeriaSearchService.cs`** — Routes `cimmeria-server` queries to Azure AI Search (hybrid text + vector), falls back to Cosmos DB `VectorDistance()` for other sources. Internal constructor for testing.
 - **`Services/CimmeriaGraphService.cs`** — Queries Cosmos DB knowledge graph. Uses `Newtonsoft.Json.JsonConvert.SerializeObject()` (not System.Text.Json) because Cosmos SDK v3 returns `JObject` for dynamic queries.
 - **`Services/CimmeriaSummarizationService.cs`** — GPT-5.4 AI skills engine. Shared helpers: `GatherContextAsync()` (context-aware input gathering), `SearchCodeAsync()` (RAG), `GetEntityContextAsync()` (graph), `CallGptAsync()` (unified GPT call). Standardized response format via `ResponseFormatInstruction` constant and `Respond()` wrapper.
 - **`Program.cs`** — Host builder, DI registration (3 singleton services).
@@ -72,9 +72,15 @@ cd src/CimmeriaMcp.Functions && func start
 
 ### Infrastructure (`infra/`)
 
-Terraform configs targeting existing `ailab-rg` resource group. Creates Service Plan (Y1) + Windows Function App. Uses existing storage account `ailabstoragesc`. App settings inject `OPENAI_ENDPOINT`, `OPENAI_KEY`, `COSMOS_ENDPOINT`, `COSMOS_KEY`, `SEARCH_ENDPOINT`, `SEARCH_KEY`.
+Terraform and Bicep templates manage ALL Azure resources: Cosmos DB (account, database, 2 containers), Azure OpenAI (account + 5 model deployments), Azure AI Search, Service Plan (Y1), Function App. App settings are derived from resource references — no manual secret injection.
+
+Key variables: `create_resource_group` (bool, for test deployments), `deploy_search` (bool, skip AI Search in tests — free tier limited to 1/sub), `cosmos_free_tier` (bool).
 
 **Important**: Do NOT set `FUNCTIONS_WORKER_RUNTIME` in `app_settings` when using `application_stack` in Terraform — they conflict. `always_on` must be `false` on Consumption plan.
+
+### Testing (`src/CimmeriaMcp.Functions.Tests/`)
+
+xUnit test project with structural tests: search routing, method signatures, GPT deployment name, response format, AI skill completeness. Run with `dotnet test`.
 
 ### Pipelines (`pipelines/`)
 

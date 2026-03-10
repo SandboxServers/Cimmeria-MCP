@@ -4,7 +4,7 @@ A hosted MCP (Model Context Protocol) server providing AI-powered codebase intel
 
 ## How It Works
 
-The codebase is indexed across two stores: **Azure AI Search** (`cimmeria-code` index) for semantic code search, and **Cosmos DB** (`knowledge-graph` container) for a structured knowledge graph of entities, methods, properties, enums, types, game definitions, and implementation coverage. AI skills combine both data sources with **GPT-5.4** to provide synthesized answers, code generation, and analysis.
+The codebase is indexed across two stores: **Azure AI Search** (`cimmeria-code` index) for hybrid text + vector search over cimmeria-server code, and **Cosmos DB** (`knowledge-graph` container) for a structured knowledge graph of entities, methods, properties, enums, types, game definitions, and implementation coverage. The `code-chunks` container provides Cosmos DB vector search as a fallback for non-server sources (sgw-client, bigworld-engine). AI skills combine both data sources with **GPT-5.4** to provide synthesized answers, code generation, and analysis.
 
 ```
                                           ┌──────────────┐
@@ -18,13 +18,24 @@ Claude Code ──HTTP──▸ Azure Functions─┤    ┌──────�
                                      │    ┌──────────────┐
                                      │───▸│ Cosmos DB    │
                                      │    │ (Knowledge   │
-                                     │    │  Graph)      │
+                                     │    │  Graph +     │
+                                     │    │  Fallback)   │
                                      │    └──────────────┘
                                      │    ┌──────────────┐
                                      └───▸│ GPT-5.4      │
                                           │ (AI Skills)  │
                                           └──────────────┘
 ```
+
+### Search Architecture
+
+| Source | Primary Search | Fallback |
+|--------|---------------|----------|
+| `cimmeria-server` | Azure AI Search (hybrid text + vector) | Cosmos DB `VectorDistance()` |
+| `sgw-client` | Cosmos DB `VectorDistance()` | — |
+| `bigworld-engine` | Cosmos DB `VectorDistance()` | — |
+
+The AI Search index is populated by a Cosmos DB indexer on a 5-minute schedule, pulling from the `code-chunks` container filtered to `source_project = 'cimmeria-server'`. Hybrid search combines BM25 text ranking with HNSW vector similarity for better results.
 
 ## MCP Tools (34 total)
 
@@ -111,7 +122,7 @@ All AI skills use a standardized response format:
 - [.NET 10 SDK](https://dotnet.microsoft.com/download)
 - [Azure Functions Core Tools](https://learn.microsoft.com/azure/azure-functions/functions-run-local) v4.0.7030+
 - Azure AI Search index (`cimmeria-code`) populated
-- Azure OpenAI deployments: `text-embedding-3-small`, `gpt-5.4`
+- Azure OpenAI deployments: `text-embedding-3-small`, `gpt-5-4`
 - Cosmos DB with `cimmeria` database, `code-chunks` and `knowledge-graph` containers
 
 ### Local Development
@@ -132,9 +143,10 @@ All AI skills use a standardized response format:
    }
    ```
 
-2. Build and run:
+2. Build, test, and run:
    ```bash
-   dotnet build src/CimmeriaMcp.Functions
+   dotnet build
+   dotnet test
    cd src/CimmeriaMcp.Functions && func start
    ```
 
@@ -167,18 +179,37 @@ Local dev:
 }
 ```
 
-## Deployment
-
-### Infrastructure (Terraform)
+## Testing
 
 ```bash
-cd infra
-terraform init
-terraform plan -var-file=terraform.tfvars
-terraform apply -var-file=terraform.tfvars
+# Run all tests
+dotnet test
+
+# Run with verbose output
+dotnet test --verbosity normal
 ```
 
-Creates a Windows Consumption plan (Y1) + Function App in the `ailab-rg` resource group.
+The test project (`CimmeriaMcp.Functions.Tests`) contains structural and contract tests for the search service routing logic, GPT deployment configuration, response format compliance, and AI skill method completeness.
+
+## Deployment
+
+### Infrastructure
+
+Both Terraform and Bicep templates manage the complete Azure infrastructure:
+
+```bash
+# Terraform
+cd infra
+terraform init
+terraform plan
+terraform apply
+
+# Bicep
+cd infra/bicep
+az deployment group create --resource-group ailab-rg --template-file main.bicep --parameters main.bicepparam
+```
+
+Managed resources: Cosmos DB (account, database, 2 containers), Azure OpenAI (account, 5 model deployments), Azure AI Search, App Service Plan, Function App. App settings are derived from resource references — no manual secret injection needed.
 
 ### Publish
 
@@ -198,11 +229,23 @@ Or via Azure Pipelines (triggers on push to `main`).
 │   │   ├── CimmeriaGraphTools.cs          # 14 knowledge graph tools
 │   │   └── CimmeriaAiTools.cs             # 14 AI skill tools
 │   ├── Services/
-│   │   ├── CimmeriaSearchService.cs       # Embedding + AI Search logic
+│   │   ├── CimmeriaSearchService.cs       # AI Search hybrid + Cosmos DB fallback
 │   │   ├── CimmeriaGraphService.cs        # Cosmos DB knowledge graph queries
 │   │   └── CimmeriaSummarizationService.cs # GPT-5.4 AI skills engine
 │   └── host.json                          # MCP extension config
-├── infra/                                 # Terraform (Function App + plan)
+├── src/CimmeriaMcp.Functions.Tests/
+│   ├── CimmeriaSearchServiceTests.cs      # Search routing + structure tests
+│   └── CimmeriaSummarizationServiceTests.cs # AI skill contract tests
+├── infra/
+│   ├── main.tf                            # Terraform — all Azure resources
+│   ├── variables.tf                       # Resource names + flags
+│   ├── outputs.tf                         # Endpoints
+│   ├── providers.tf                       # azurerm ~> 4.0
+│   ├── tests/deploy.tftest.hcl            # Terraform native test
+│   └── bicep/
+│       ├── main.bicep                     # Equivalent Bicep template
+│       ├── main.bicepparam                # Production parameters
+│       └── tests/                         # Bicep test parameters + validation
 ├── pipelines/                             # Azure Pipelines (build/test/deploy)
 └── scripts/
     └── Deploy-Local.ps1                   # Local publish + deploy
@@ -212,8 +255,9 @@ Or via Azure Pipelines (triggers on push to `main`).
 
 - **.NET 10** isolated worker, Azure Functions v4
 - **Azure Functions MCP Extension** (`Microsoft.Azure.Functions.Worker.Extensions.Mcp`)
-- **Azure AI Search** with hybrid (text + vector) queries
-- **Azure OpenAI** — `text-embedding-3-small` (embeddings), `gpt-5.4` (AI skills)
-- **Cosmos DB** — NoSQL knowledge graph (4,801 vertices, 4,340 edges)
-- **Terraform** for infrastructure
+- **Azure AI Search** — hybrid text + vector (HNSW, 505-dim, cosine) for cimmeria-server
+- **Azure OpenAI** — `text-embedding-3-small` (embeddings), `gpt-5-4` (AI skills)
+- **Cosmos DB** — NoSQL knowledge graph (4,801 vertices, 4,340 edges) + vector search fallback
+- **Terraform** + **Bicep** for infrastructure
+- **xUnit** for testing
 - **Azure Pipelines** for CI/CD
