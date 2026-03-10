@@ -2,14 +2,17 @@
 // Cimmeria MCP Server — Complete Azure Infrastructure
 // =============================================================================
 
-@description('Primary Azure region (OpenAI, AI Search, Service Plan, Function App)')
+@description('Primary Azure region (OpenAI, AI Search)')
 param location string = 'eastus'
 
-@description('Azure region for Cosmos DB account')
-param cosmosLocation string = 'eastus2'
+@description('Azure region for Cosmos DB, Service Plan, and Function App')
+param computeLocation string = 'eastus2'
 
 @description('Name for the Function App')
 param functionAppName string = 'cimmeria-mcp'
+
+@description('App Service Plan name')
+param servicePlanName string = 'EastUS2Plan'
 
 @description('Storage account name')
 param storageAccountName string = 'ailabstoragesc'
@@ -43,7 +46,7 @@ resource storage 'Microsoft.Storage/storageAccounts@2023-05-01' existing = {
 
 resource cosmos 'Microsoft.DocumentDB/databaseAccounts@2024-05-15' = {
   name: cosmosAccountName
-  location: cosmosLocation
+  location: computeLocation
   kind: 'GlobalDocumentDB'
   properties: {
     databaseAccountOfferType: 'Standard'
@@ -53,7 +56,7 @@ resource cosmos 'Microsoft.DocumentDB/databaseAccounts@2024-05-15' = {
     }
     locations: [
       {
-        locationName: cosmosLocation
+        locationName: computeLocation
         failoverPriority: 0
       }
     ]
@@ -251,8 +254,8 @@ resource search 'Microsoft.Search/searchServices@2024-06-01-preview' = if (deplo
 // =============================================================================
 
 resource plan 'Microsoft.Web/serverfarms@2024-04-01' = {
-  name: '${functionAppName}-plan'
-  location: location
+  name: servicePlanName
+  location: computeLocation
   sku: {
     name: 'Y1'
     tier: 'Dynamic'
@@ -262,7 +265,7 @@ resource plan 'Microsoft.Web/serverfarms@2024-04-01' = {
 
 resource func 'Microsoft.Web/sites@2024-04-01' = {
   name: functionAppName
-  location: location
+  location: computeLocation
   kind: 'functionapp'
   properties: {
     serverFarmId: plan.id

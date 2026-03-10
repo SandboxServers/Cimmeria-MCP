@@ -15,10 +15,16 @@ variable "location" {
   default     = "eastus"
 }
 
-variable "cosmos_location" {
-  description = "Azure region for Cosmos DB account"
+variable "compute_location" {
+  description = "Azure region for Cosmos DB, Service Plan, and Function App"
   type        = string
   default     = "eastus2"
+}
+
+variable "service_plan_name" {
+  description = "App Service Plan name"
+  type        = string
+  default     = "EastUS2Plan"
 }
 
 variable "function_app_name" {

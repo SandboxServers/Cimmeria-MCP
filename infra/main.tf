@@ -41,18 +41,20 @@ locals {
 
 resource "azurerm_cosmosdb_account" "cosmos" {
   name                = var.cosmos_account_name
-  location            = var.cosmos_location
+  location            = local.rg_location
   resource_group_name = local.rg_name
   offer_type          = "Standard"
   kind                = "GlobalDocumentDB"
   free_tier_enabled   = var.cosmos_free_tier
+
+  automatic_failover_enabled = true
 
   consistency_policy {
     consistency_level = "Session"
   }
 
   geo_location {
-    location          = var.cosmos_location
+    location          = var.compute_location
     failover_priority = 0
   }
 
@@ -68,12 +70,13 @@ resource "azurerm_cosmosdb_sql_database" "db" {
 }
 
 resource "azurerm_cosmosdb_sql_container" "code_chunks" {
-  name                = "code-chunks"
-  resource_group_name = local.rg_name
-  account_name        = azurerm_cosmosdb_account.cosmos.name
-  database_name       = azurerm_cosmosdb_sql_database.db.name
-  partition_key_paths = ["/source_project"]
-  throughput          = 400
+  name                  = "code-chunks"
+  resource_group_name   = local.rg_name
+  account_name          = azurerm_cosmosdb_account.cosmos.name
+  database_name         = azurerm_cosmosdb_sql_database.db.name
+  partition_key_paths   = ["/source_project"]
+  partition_key_version = 2
+  throughput            = 400
 
   indexing_policy {
     indexing_mode = "consistent"
@@ -99,12 +102,13 @@ resource "azurerm_cosmosdb_sql_container" "code_chunks" {
 }
 
 resource "azurerm_cosmosdb_sql_container" "knowledge_graph" {
-  name                = "knowledge-graph"
-  resource_group_name = local.rg_name
-  account_name        = azurerm_cosmosdb_account.cosmos.name
-  database_name       = azurerm_cosmosdb_sql_database.db.name
-  partition_key_paths = ["/pk"]
-  throughput          = 400
+  name                  = "knowledge-graph"
+  resource_group_name   = local.rg_name
+  account_name          = azurerm_cosmosdb_account.cosmos.name
+  database_name         = azurerm_cosmosdb_sql_database.db.name
+  partition_key_paths   = ["/pk"]
+  partition_key_version = 2
+  throughput            = 400
 }
 
 # =============================================================================
@@ -112,11 +116,12 @@ resource "azurerm_cosmosdb_sql_container" "knowledge_graph" {
 # =============================================================================
 
 resource "azurerm_cognitive_account" "openai" {
-  name                = var.openai_account_name
-  location            = var.location
-  resource_group_name = local.rg_name
-  kind                = "OpenAI"
-  sku_name            = "S0"
+  name                  = var.openai_account_name
+  location              = var.location
+  resource_group_name   = local.rg_name
+  kind                  = "OpenAI"
+  sku_name              = "S0"
+  custom_subdomain_name = var.openai_account_name
 }
 
 resource "azurerm_cognitive_deployment" "embedding" {
@@ -199,7 +204,7 @@ resource "azurerm_cognitive_deployment" "gpt_4_1" {
   }
 
   lifecycle {
-    ignore_changes = [sku[0].capacity]
+    ignore_changes = [sku[0].capacity, rai_policy_name]
   }
 
   depends_on = [azurerm_cognitive_deployment.gpt_4o]
@@ -240,22 +245,30 @@ resource "azurerm_search_service" "search" {
 # =============================================================================
 
 resource "azurerm_service_plan" "plan" {
-  name                = "${var.function_app_name}-plan"
-  location            = var.location
+  name                = var.service_plan_name
+  location            = var.compute_location
   resource_group_name = local.rg_name
   os_type             = "Windows"
   sku_name            = "Y1"
 }
 
 resource "azurerm_windows_function_app" "func" {
-  name                       = var.function_app_name
-  location                   = var.location
-  resource_group_name        = local.rg_name
-  service_plan_id            = azurerm_service_plan.plan.id
-  storage_account_name       = local.storage_name
-  storage_account_access_key = local.storage_access_key
+  name                                          = var.function_app_name
+  location                                      = var.compute_location
+  resource_group_name                           = local.rg_name
+  service_plan_id                               = azurerm_service_plan.plan.id
+  storage_account_name                          = local.storage_name
+  storage_account_access_key                    = local.storage_access_key
+  builtin_logging_enabled                       = false
+  client_certificate_mode                       = "Required"
+  ftp_publish_basic_authentication_enabled      = false
+  webdeploy_publish_basic_authentication_enabled = false
 
   site_config {
+    ftps_state        = "FtpsOnly"
+    http2_enabled     = true
+    use_32_bit_worker = false
+
     application_stack {
       dotnet_version              = "v10.0"
       use_dotnet_isolated_runtime = true
@@ -264,14 +277,23 @@ resource "azurerm_windows_function_app" "func" {
 
   app_settings = merge(
     {
-      "OPENAI_ENDPOINT" = azurerm_cognitive_account.openai.endpoint
-      "OPENAI_KEY"      = azurerm_cognitive_account.openai.primary_access_key
-      "COSMOS_ENDPOINT" = azurerm_cosmosdb_account.cosmos.endpoint
-      "COSMOS_KEY"      = azurerm_cosmosdb_account.cosmos.primary_key
+      "OPENAI_ENDPOINT"                        = azurerm_cognitive_account.openai.endpoint
+      "OPENAI_KEY"                             = azurerm_cognitive_account.openai.primary_access_key
+      "COSMOS_ENDPOINT"                        = azurerm_cosmosdb_account.cosmos.endpoint
+      "COSMOS_KEY"                             = azurerm_cosmosdb_account.cosmos.primary_key
+      "WEBSITE_RUN_FROM_PACKAGE"               = "1"
+      "WEBSITE_USE_PLACEHOLDER_DOTNETISOLATED" = "1"
     },
     var.deploy_search ? {
       "SEARCH_ENDPOINT" = "https://${azurerm_search_service.search[0].name}.search.windows.net"
       "SEARCH_KEY"      = azurerm_search_service.search[0].primary_key
     } : {}
   )
+
+  lifecycle {
+    ignore_changes = [
+      site_config[0].application_insights_connection_string,
+      site_config[0].application_insights_key,
+    ]
+  }
 }
