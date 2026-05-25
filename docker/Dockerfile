@@ -21,10 +21,11 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
-# Restore first, with only csproj files copied, so package restore is
-# cached across most edits.
+# Restore first, with only the csproj copied, so package restore is
+# cached across most edits. The test project is excluded by
+# .dockerignore — it's not part of the runtime image and pulling it
+# in would just bloat the build context.
 COPY src/CimmeriaMcp.Functions/CimmeriaMcp.Functions.csproj ./CimmeriaMcp.Functions/
-COPY src/CimmeriaMcp.Functions.Tests/CimmeriaMcp.Functions.Tests.csproj ./CimmeriaMcp.Functions.Tests/
 RUN dotnet restore CimmeriaMcp.Functions/CimmeriaMcp.Functions.csproj
 
 # Now copy the rest of the source and publish a self-contained
