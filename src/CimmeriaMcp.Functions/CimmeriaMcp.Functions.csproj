@@ -16,10 +16,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- ASP.NET Core base. The Microsoft.NET.Sdk.Web SDK auto-wires
-         this; declared explicitly for clarity. -->
-    <FrameworkReference Include="Microsoft.AspNetCore.App" />
-
     <!-- Official MCP C# SDK (Anthropic + Microsoft). Handles the
          JSON-RPC 2.0 transport, Streamable HTTP at /, SSE fallback
          at /sse + /message, tool reflection from
@@ -38,12 +34,17 @@
     <PackageReference Include="Npgsql" Version="9.0.2" />
     <PackageReference Include="Pgvector" Version="0.3.0" />
 
-    <!-- Observability — OTLP to the SigNoz stack on the same colo box. -->
-    <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.10.0" />
-    <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.10.0" />
-    <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.10.1" />
-    <PackageReference Include="OpenTelemetry.Instrumentation.Http" Version="1.10.0" />
-    <PackageReference Include="OpenTelemetry.Instrumentation.Runtime" Version="1.10.0" />
+    <!-- Observability — OTLP to the SigNoz stack on the same colo box.
+         Core packages pinned to 1.15.3 (the patched build for
+         CVE-2026-40894 + GHSA-4625-4j76-fww9 — see
+         https://github.com/advisories/GHSA-g94r-2vxg-569j). The
+         contrib instrumentation packages ship slightly behind — track
+         the latest available there. -->
+    <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.15.3" />
+    <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.15.3" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.15.1" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.Http" Version="1.15.1" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.Runtime" Version="1.15.1" />
 
     <!-- JSON. We standardise on System.Text.Json now that Cosmos
          (which forced Newtonsoft for dynamic JObject results) is
