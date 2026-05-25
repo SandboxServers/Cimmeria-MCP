@@ -8,6 +8,8 @@ Cimmeria MCP Server — a C# Azure Function App providing AI-powered codebase in
 
 Uses the **Azure Functions MCP Extension** (`Microsoft.Azure.Functions.Worker.Extensions.Mcp`) — transport, auth, and MCP protocol are handled by the Functions runtime at `/runtime/webhooks/mcp`. Auth uses a system key.
 
+> **Migration in progress** — a colo self-host deployment is being staged in [`docker/`](docker/) and documented in [`docs/colo-deployment.md`](docs/colo-deployment.md). Target topology: ASP.NET Core MCP-over-HTTP + Postgres+pgvector + in-process SignalR Hub + SigNoz/OTLP, with Azure OpenAI as the only remaining cloud dependency. The compose artifacts are committed first; the C# refactor (Functions → ASP.NET, Cosmos → Postgres, AI Search → pgvector) lands in follow-up PRs against that env-var contract.
+
 ## Build Commands
 
 ```bash
