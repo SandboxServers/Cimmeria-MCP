@@ -1,112 +1,89 @@
-using Microsoft.Azure.Cosmos;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
+using System.Text.Json;
+using Npgsql;
 
-namespace CimmeriaMcp.Functions.Services;
+namespace CimmeriaMcp.Services;
 
-public class CimmeriaGraphService
+/// <summary>
+/// Knowledge-graph queries over Postgres. Replaces the Cosmos-DB
+/// `knowledge-graph` container with two relational tables —
+/// `kg_vertices` and `kg_edges` — plus JSONB property bags that
+/// preserve the snake_case field names the Cosmos documents had
+/// (`from_id`, `to_id`, `method_type`, `data_type`, `replicated`,
+/// `owner`, etc.). The JSON shapes returned to LLM callers are
+/// unchanged.
+///
+/// Cosmos had two query patterns this port collapses into one:
+///   - Vertices: `WHERE c.doc_type = 'vertex'` against the unified
+///     container → now `FROM kg_vertices`.
+///   - Edges:    `WHERE c.doc_type = 'edge'` against the same →
+///     now `FROM kg_edges`.
+/// The separate tables let the foreign-key cascade clean up dangling
+/// edges automatically on vertex delete.
+/// </summary>
+public sealed class CimmeriaGraphService
 {
-    private const string DatabaseName = "cimmeria";
-    private const string ContainerName = "knowledge-graph";
+    private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
-    private readonly Container _container;
+    private readonly NpgsqlDataSource _db;
 
-    private static string SafeId(string rawId) =>
-        rawId.Replace("/", "--").Replace("\\", "--").Replace("#", "-").Replace("?", "-");
-
-    public CimmeriaGraphService()
+    public CimmeriaGraphService(NpgsqlDataSource db)
     {
-        var cosmosEndpoint = Environment.GetEnvironmentVariable("COSMOS_ENDPOINT")
-            ?? throw new InvalidOperationException("COSMOS_ENDPOINT is not configured.");
-        var cosmosKey = Environment.GetEnvironmentVariable("COSMOS_KEY")
-            ?? throw new InvalidOperationException("COSMOS_KEY is not configured.");
-
-        var cosmosClient = new CosmosClient(cosmosEndpoint, cosmosKey);
-        _container = cosmosClient.GetContainer(DatabaseName, ContainerName);
+        _db = db;
     }
 
-    /// <summary>
-    /// Get full details about a specific entity or interface, including its properties, methods,
-    /// parent, interfaces, and game system associations.
-    /// </summary>
+    // ──────────────────────────────────────────────────────────────
+    // Entity details
+    // ──────────────────────────────────────────────────────────────
+
     public async Task<string> GetEntityDetailsAsync(string entityName)
     {
-        // Get the entity vertex
-        var entitySql = "SELECT * FROM c WHERE c.id = @id AND c.doc_type = 'vertex'";
-        var entityDef = new QueryDefinition(entitySql)
-            .WithParameter("@id", $"entity:{entityName}");
-
-        dynamic? entity = null;
-        using (var iter = _container.GetItemQueryIterator<dynamic>(entityDef))
+        var entityId = $"entity:{entityName}";
+        var entity = await GetVertexAsync(entityId);
+        if (entity is null)
         {
-            while (iter.HasMoreResults)
-            {
-                var resp = await iter.ReadNextAsync();
-                foreach (var item in resp)
-                    entity = item;
-            }
+            return JsonSerializer.Serialize(new { error = $"Entity '{entityName}' not found in knowledge graph." });
         }
 
-        if (entity == null)
-            return JsonConvert.SerializeObject(new { error = $"Entity '{entityName}' not found in knowledge graph." });
+        var props = await QueryVerticesByOwnerAndTypeAsync(entityName, "property");
+        var methods = await QueryVerticesByOwnerAndTypeAsync(entityName, "method");
+        var outgoing = await QueryEdgesByFromAsync(entityId);
+        var incoming = await QueryEdgesByToAsync(entityId);
 
-        // Get properties
-        var propsSql = "SELECT * FROM c WHERE c.label = 'property' AND c.owner = @owner AND c.doc_type = 'vertex'";
-        var props = await QueryListAsync<dynamic>(new QueryDefinition(propsSql)
-            .WithParameter("@owner", entityName));
-
-        // Get methods
-        var methodsSql = "SELECT * FROM c WHERE c.label = 'method' AND c.owner = @owner AND c.doc_type = 'vertex'";
-        var methods = await QueryListAsync<dynamic>(new QueryDefinition(methodsSql)
-            .WithParameter("@owner", entityName));
-
-        // Get edges from this entity
-        var edgesSql = "SELECT * FROM c WHERE c.from_id = @entityId AND c.doc_type = 'edge'";
-        var edges = await QueryListAsync<dynamic>(new QueryDefinition(edgesSql)
-            .WithParameter("@entityId", $"entity:{entityName}"));
-
-        // Get incoming edges (who inherits/implements this)
-        var inEdgesSql = "SELECT * FROM c WHERE c.to_id = @entityId AND c.doc_type = 'edge'";
-        var inEdges = await QueryListAsync<dynamic>(new QueryDefinition(inEdgesSql)
-            .WithParameter("@entityId", $"entity:{entityName}"));
-
-        return JsonConvert.SerializeObject(new
+        return JsonSerializer.Serialize(new
         {
             entity,
             properties = props,
             methods,
-            outgoing_edges = edges,
-            incoming_edges = inEdges,
-        }, Formatting.Indented);
+            outgoing_edges = outgoing,
+            incoming_edges = incoming,
+        }, JsonOptions);
     }
 
-    /// <summary>
-    /// Traverse relationships from a starting entity, following specified edge types.
-    /// </summary>
+    // ──────────────────────────────────────────────────────────────
+    // Traversal
+    // ──────────────────────────────────────────────────────────────
+
     public async Task<string> TraverseGraphAsync(string startEntity, string edgeType, int depth)
     {
-        var visited = new HashSet<string>();
+        var startId = $"entity:{startEntity}";
+        var visited = new HashSet<string> { startId };
         var results = new List<object>();
-        var frontier = new Queue<(string entityId, int currentDepth)>();
-        frontier.Enqueue(($"entity:{startEntity}", 0));
-        visited.Add($"entity:{startEntity}");
+        var frontier = new Queue<(string id, int depth)>();
+        frontier.Enqueue((startId, 0));
+
+        // Edge types where "reverse direction also counts" — mirrors the
+        // Cosmos query's special-case for inheritance edges.
+        var bidirectional = edgeType is "inherits" or "implements" or "python_inherits";
 
         while (frontier.Count > 0)
         {
             var (currentId, currentDepth) = frontier.Dequeue();
-            if (currentDepth >= depth)
-                continue;
+            if (currentDepth >= depth) continue;
 
-            // Find edges of the specified type from current node
-            var sql = "SELECT * FROM c WHERE c.from_id = @fromId AND c.label = @label AND c.doc_type = 'edge'";
-            var queryDef = new QueryDefinition(sql)
-                .WithParameter("@fromId", currentId)
-                .WithParameter("@label", edgeType);
-
-            var edges = await QueryListAsync<dynamic>(queryDef);
-            foreach (var edge in edges)
+            var forward = await QueryEdgesByFromAndTypeAsync(currentId, edgeType);
+            foreach (var edge in forward)
             {
-                string toId = (string)edge.to_id;
+                var toId = (string)edge["to_id"]!;
                 results.Add(new
                 {
                     from = currentId,
@@ -114,26 +91,15 @@ public class CimmeriaGraphService
                     to = toId,
                     depth = currentDepth + 1,
                 });
-
-                if (!visited.Contains(toId))
-                {
-                    visited.Add(toId);
-                    frontier.Enqueue((toId, currentDepth + 1));
-                }
+                if (visited.Add(toId)) frontier.Enqueue((toId, currentDepth + 1));
             }
 
-            // Also check reverse direction for some edge types
-            if (edgeType is "inherits" or "implements" or "python_inherits")
+            if (bidirectional)
             {
-                var revSql = "SELECT * FROM c WHERE c.to_id = @toId AND c.label = @label AND c.doc_type = 'edge'";
-                var revDef = new QueryDefinition(revSql)
-                    .WithParameter("@toId", currentId)
-                    .WithParameter("@label", edgeType);
-
-                var revEdges = await QueryListAsync<dynamic>(revDef);
-                foreach (var edge in revEdges)
+                var reverse = await QueryEdgesByToAndTypeAsync(currentId, edgeType);
+                foreach (var edge in reverse)
                 {
-                    string fromId = (string)edge.from_id;
+                    var fromId = (string)edge["from_id"]!;
                     results.Add(new
                     {
                         from = fromId,
@@ -141,136 +107,106 @@ public class CimmeriaGraphService
                         to = currentId,
                         depth = currentDepth + 1,
                     });
-
-                    if (!visited.Contains(fromId))
-                    {
-                        visited.Add(fromId);
-                        frontier.Enqueue((fromId, currentDepth + 1));
-                    }
+                    if (visited.Add(fromId)) frontier.Enqueue((fromId, currentDepth + 1));
                 }
             }
         }
 
-        return JsonConvert.SerializeObject(new
+        return JsonSerializer.Serialize(new
         {
             start = startEntity,
             edge_type = edgeType,
             max_depth = depth,
             traversal = results,
             nodes_visited = visited.Count,
-        }, Formatting.Indented);
+        }, JsonOptions);
     }
 
-    /// <summary>
-    /// Get the full inheritance hierarchy for an entity — what it inherits from and what inherits from it.
-    /// </summary>
+    // ──────────────────────────────────────────────────────────────
+    // Inheritance
+    // ──────────────────────────────────────────────────────────────
+
     public async Task<string> GetInheritanceTreeAsync(string entityName)
     {
-        // Walk up the inheritance chain
         var ancestors = new List<string>();
         var current = entityName;
-        for (int i = 0; i < 10; i++) // safety limit
+        for (int i = 0; i < 10; i++)
         {
-            var sql = "SELECT * FROM c WHERE c.from_id = @fromId AND c.label = 'inherits' AND c.doc_type = 'edge'";
-            var edges = await QueryListAsync<dynamic>(new QueryDefinition(sql)
-                .WithParameter("@fromId", $"entity:{current}"));
-
-            if (edges.Count == 0) break;
-            string parent = ((string)edges[0].to_id).Replace("entity:", "");
+            var parents = await QueryEdgesByFromAndTypeAsync($"entity:{current}", "inherits");
+            if (parents.Count == 0) break;
+            var parent = ((string)parents[0]["to_id"]!).Replace("entity:", "");
             ancestors.Add(parent);
             current = parent;
         }
 
-        // Find descendants (who inherits from this entity)
-        var descendants = new List<object>();
-        var descSql = "SELECT * FROM c WHERE c.to_id = @toId AND c.label = 'inherits' AND c.doc_type = 'edge'";
-        var descEdges = await QueryListAsync<dynamic>(new QueryDefinition(descSql)
-            .WithParameter("@toId", $"entity:{entityName}"));
+        var descEdges = await QueryEdgesByToAndTypeAsync($"entity:{entityName}", "inherits");
+        var descendants = descEdges
+            .Select(e => new { entity = ((string)e["from_id"]!).Replace("entity:", "") })
+            .ToList();
 
-        foreach (var edge in descEdges)
-        {
-            string child = ((string)edge.from_id).Replace("entity:", "");
-            descendants.Add(new { entity = child });
-        }
+        var ifaceEdges = await QueryEdgesByFromAndTypeAsync($"entity:{entityName}", "implements");
+        var interfaces = ifaceEdges
+            .Select(e => ((string)e["to_id"]!).Replace("entity:", ""))
+            .ToList();
 
-        // Interfaces implemented
-        var ifaceSql = "SELECT * FROM c WHERE c.from_id = @fromId AND c.label = 'implements' AND c.doc_type = 'edge'";
-        var ifaceEdges = await QueryListAsync<dynamic>(new QueryDefinition(ifaceSql)
-            .WithParameter("@fromId", $"entity:{entityName}"));
-        var interfaces = ifaceEdges.Select(e => ((string)e.to_id).Replace("entity:", "")).ToList();
-
-        return JsonConvert.SerializeObject(new
+        return JsonSerializer.Serialize(new
         {
             entity = entityName,
             ancestors,
             descendants,
             interfaces,
-        }, Formatting.Indented);
+        }, JsonOptions);
     }
 
-    /// <summary>
-    /// Get graph overview — vertex/edge counts by type.
-    /// </summary>
+    // ──────────────────────────────────────────────────────────────
+    // Graph overview
+    // ──────────────────────────────────────────────────────────────
+
     public async Task<string> GetGraphOverviewAsync()
     {
-        var vertexSql = "SELECT c.label, COUNT(1) AS count FROM c WHERE c.doc_type = 'vertex' GROUP BY c.label";
-        var vertexCounts = await QueryListAsync<dynamic>(new QueryDefinition(vertexSql));
+        // Vertex counts by label (label lives in properties JSONB).
+        var vertexCounts = await ScalarGroupAsync(
+            "SELECT properties->>'label' AS label, COUNT(*) AS count FROM kg_vertices GROUP BY properties->>'label'");
+        var edgeCounts = await ScalarGroupAsync(
+            "SELECT properties->>'label' AS label, COUNT(*) AS count FROM kg_edges GROUP BY properties->>'label'");
 
-        var edgeSql = "SELECT c.label, COUNT(1) AS count FROM c WHERE c.doc_type = 'edge' GROUP BY c.label";
-        var edgeCounts = await QueryListAsync<dynamic>(new QueryDefinition(edgeSql));
+        var entities = await QueryVerticesByLabelAsync("entity", "name");
+        var interfaces = await QueryVerticesByLabelAsync("interface", "name");
+        var systems = await QueryVerticesByLabelAsync("game_system", "name", "description");
 
-        // List all entities
-        var entitiesSql = "SELECT c.name FROM c WHERE c.label = 'entity' AND c.doc_type = 'vertex'";
-        var entities = await QueryListAsync<dynamic>(new QueryDefinition(entitiesSql));
-
-        var interfacesSql = "SELECT c.name FROM c WHERE c.label = 'interface' AND c.doc_type = 'vertex'";
-        var interfacesResult = await QueryListAsync<dynamic>(new QueryDefinition(interfacesSql));
-
-        var systemsSql = "SELECT c.name, c.description FROM c WHERE c.label = 'game_system' AND c.doc_type = 'vertex'";
-        var systems = await QueryListAsync<dynamic>(new QueryDefinition(systemsSql));
-
-        return JsonConvert.SerializeObject(new
+        return JsonSerializer.Serialize(new
         {
             vertex_counts = vertexCounts,
             edge_counts = edgeCounts,
             entities,
-            interfaces = interfacesResult,
+            interfaces,
             game_systems = systems,
-        }, Formatting.Indented);
+        }, JsonOptions);
     }
 
-    /// <summary>
-    /// Find all entities and methods related to a specific game system.
-    /// </summary>
+    // ──────────────────────────────────────────────────────────────
+    // Game system
+    // ──────────────────────────────────────────────────────────────
+
     public async Task<string> GetGameSystemDetailsAsync(string systemName)
     {
-        // Get the system vertex
-        var sysSql = "SELECT * FROM c WHERE c.id = @id AND c.doc_type = 'vertex'";
-        var sysResult = await QueryListAsync<dynamic>(new QueryDefinition(sysSql)
-            .WithParameter("@id", $"system:{systemName}"));
-
-        if (sysResult.Count == 0)
-            return JsonConvert.SerializeObject(new { error = $"Game system '{systemName}' not found." });
-
-        // Get entities linked to this system
-        var linkSql = "SELECT * FROM c WHERE c.to_id = @sysId AND c.label = 'part_of_system' AND c.doc_type = 'edge'";
-        var links = await QueryListAsync<dynamic>(new QueryDefinition(linkSql)
-            .WithParameter("@sysId", $"system:{systemName}"));
-
-        var entityDetails = new List<object>();
-        foreach (var link in links)
+        var sysId = $"system:{systemName}";
+        var system = await GetVertexAsync(sysId);
+        if (system is null)
         {
-            string entityId = (string)link.from_id;
-            string entityName = entityId.Replace("entity:", "");
+            return JsonSerializer.Serialize(new { error = $"Game system '{systemName}' not found." });
+        }
 
-            // Get property and method counts for each linked entity
-            var propsSql = "SELECT VALUE COUNT(1) FROM c WHERE c.label = 'property' AND c.owner = @owner AND c.doc_type = 'vertex'";
-            var propCount = await QueryScalarAsync<long>(new QueryDefinition(propsSql)
-                .WithParameter("@owner", entityName));
+        // Entities linked via `part_of_system` edge.
+        var linkEdges = await QueryEdgesByToAndTypeAsync(sysId, "part_of_system");
+        var entityDetails = new List<object>();
+        foreach (var edge in linkEdges)
+        {
+            var entityId = (string)edge["from_id"]!;
+            var entityName = entityId.Replace("entity:", "");
 
-            var methodsSql = "SELECT VALUE COUNT(1) FROM c WHERE c.label = 'method' AND c.owner = @owner AND c.doc_type = 'vertex'";
-            var methodCount = await QueryScalarAsync<long>(new QueryDefinition(methodsSql)
-                .WithParameter("@owner", entityName));
+            var propCount = await CountVerticesByOwnerAndTypeAsync(entityName, "property");
+            var methodCount = await CountVerticesByOwnerAndTypeAsync(entityName, "method");
 
             entityDetails.Add(new
             {
@@ -280,385 +216,367 @@ public class CimmeriaGraphService
             });
         }
 
-        return JsonConvert.SerializeObject(new
+        return JsonSerializer.Serialize(new
         {
-            system = sysResult[0],
+            system,
             entities = entityDetails,
-        }, Formatting.Indented);
+        }, JsonOptions);
     }
 
-    /// <summary>
-    /// Find all client-visible (replicated) properties for an entity and its full inheritance chain.
-    /// </summary>
+    // ──────────────────────────────────────────────────────────────
+    // Replicated properties
+    // ──────────────────────────────────────────────────────────────
+
     public async Task<string> GetReplicatedPropertiesAsync(string entityName)
     {
-        // Collect entity + all ancestors
         var chain = new List<string> { entityName };
         var current = entityName;
         for (int i = 0; i < 10; i++)
         {
-            var sql = "SELECT * FROM c WHERE c.from_id = @fromId AND c.label = 'inherits' AND c.doc_type = 'edge'";
-            var edges = await QueryListAsync<dynamic>(new QueryDefinition(sql)
-                .WithParameter("@fromId", $"entity:{current}"));
-            if (edges.Count == 0) break;
-            string parent = ((string)edges[0].to_id).Replace("entity:", "");
+            var parents = await QueryEdgesByFromAndTypeAsync($"entity:{current}", "inherits");
+            if (parents.Count == 0) break;
+            var parent = ((string)parents[0]["to_id"]!).Replace("entity:", "");
             chain.Add(parent);
             current = parent;
         }
 
-        // Get interfaces
-        var ifaceSql = "SELECT c.to_id FROM c WHERE c.from_id = @fromId AND c.label = 'implements' AND c.doc_type = 'edge'";
-        var ifaceEdges = await QueryListAsync<dynamic>(new QueryDefinition(ifaceSql)
-            .WithParameter("@fromId", $"entity:{entityName}"));
+        var ifaceEdges = await QueryEdgesByFromAndTypeAsync($"entity:{entityName}", "implements");
         foreach (var edge in ifaceEdges)
-            chain.Add(((string)edge.to_id).Replace("entity:", ""));
+        {
+            chain.Add(((string)edge["to_id"]!).Replace("entity:", ""));
+        }
 
-        // Get all replicated properties across the chain
         var allProps = new List<object>();
         foreach (var owner in chain)
         {
-            var propsSql = "SELECT * FROM c WHERE c.label = 'property' AND c.owner = @owner AND c.replicated = true AND c.doc_type = 'vertex'";
-            var props = await QueryListAsync<dynamic>(new QueryDefinition(propsSql)
-                .WithParameter("@owner", owner));
+            var sql = """
+                SELECT properties FROM kg_vertices
+                WHERE vertex_type = 'property'
+                  AND properties->>'owner' = @owner
+                  AND COALESCE((properties->>'replicated')::boolean, false) = true
+                """;
+            await using var cmd = _db.CreateCommand(sql);
+            cmd.Parameters.AddWithValue("owner", owner);
 
-            foreach (var prop in props)
+            await using var reader = await cmd.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
             {
+                var props = JsonDocument.Parse(reader.GetString(0)).RootElement;
                 allProps.Add(new
                 {
-                    name = (string)prop.name,
-                    data_type = (string)prop.data_type,
-                    flags = (string)prop.flags,
+                    name = props.GetProperty("name").GetString(),
+                    data_type = TryGetString(props, "data_type"),
+                    flags = TryGetString(props, "flags"),
                     defined_in = owner,
                 });
             }
         }
 
-        return JsonConvert.SerializeObject(new
+        return JsonSerializer.Serialize(new
         {
             entity = entityName,
             inheritance_chain = chain,
             replicated_properties = allProps,
-        }, Formatting.Indented);
+        }, JsonOptions);
     }
 
-    /// <summary>
-    /// Find method call chains — what does a specific method call, and what calls it.
-    /// </summary>
+    // ──────────────────────────────────────────────────────────────
+    // Method call chain
+    // ──────────────────────────────────────────────────────────────
+
     public async Task<string> GetMethodCallChainAsync(string entityName, string methodName)
     {
-        // Find outgoing calls from this method's script implementation
-        var outSql = "SELECT * FROM c WHERE STARTSWITH(c.from_id, @prefix) AND c.doc_type = 'edge' " +
-                     "AND c.label IN ('sends_to_client', 'sends_to_base', 'sends_to_cell', 'calls_self', 'calls_super', 'uses_bigworld')";
-        var outEdges = await QueryListAsync<dynamic>(new QueryDefinition(outSql)
-            .WithParameter("@prefix", $"script_method:cell:{entityName}.{methodName}"));
+        var callEdgeTypes = new[]
+        {
+            "sends_to_client", "sends_to_base", "sends_to_cell",
+            "calls_self", "calls_super", "uses_bigworld"
+        };
 
-        // Also check base script
-        var outBaseEdges = await QueryListAsync<dynamic>(new QueryDefinition(outSql)
-            .WithParameter("@prefix", $"script_method:base:{entityName}.{methodName}"));
+        var cellPrefix = $"script_method:cell:{entityName}.{methodName}";
+        var basePrefix = $"script_method:base:{entityName}.{methodName}";
 
-        // Find what calls this method
-        var inSql = "SELECT * FROM c WHERE c.to_method = @method AND c.doc_type = 'edge' " +
-                    "AND c.label IN ('sends_to_client', 'sends_to_base', 'sends_to_cell', 'calls_self')";
-        var inEdges = await QueryListAsync<dynamic>(new QueryDefinition(inSql)
-            .WithParameter("@method", methodName));
+        var outgoing = await QueryEdgesByFromPrefixAndTypesAsync(cellPrefix, callEdgeTypes);
+        var outgoingBase = await QueryEdgesByFromPrefixAndTypesAsync(basePrefix, callEdgeTypes);
 
-        return JsonConvert.SerializeObject(new
+        var incoming = await QueryEdgesByToMethodAndTypesAsync(methodName,
+            new[] { "sends_to_client", "sends_to_base", "sends_to_cell", "calls_self" });
+
+        return JsonSerializer.Serialize(new
         {
             entity = entityName,
             method = methodName,
-            outgoing_calls = outEdges.Concat(outBaseEdges).ToList(),
-            incoming_calls = inEdges,
-        }, Formatting.Indented);
+            outgoing_calls = outgoing.Concat(outgoingBase).ToList(),
+            incoming_calls = incoming,
+        }, JsonOptions);
     }
 
-    // ====================================================================
-    // Enhancement #1: Enum & Type Resolver
-    // ====================================================================
+    // ──────────────────────────────────────────────────────────────
+    // Enum & type lookups
+    // ──────────────────────────────────────────────────────────────
 
     public async Task<string> LookupEnumAsync(string enumName, string? tokenName)
     {
         if (!string.IsNullOrEmpty(tokenName))
         {
-            // Search for a specific token across all enums
-            var sql = "SELECT * FROM c WHERE c.label = 'enumeration' AND c.doc_type = 'vertex'";
-            var enums = await QueryListAsync<dynamic>(new QueryDefinition(sql));
+            // Token search across all enums. Tokens live as a JSON
+            // object in `properties.tokens`; we expand them server-side
+            // via jsonb_each_text so we can grep without dragging full
+            // documents back to C#.
+            var sql = """
+                SELECT properties->>'name' AS enumeration,
+                       tk.key AS token,
+                       tk.value AS value
+                FROM kg_vertices v,
+                     LATERAL jsonb_each_text(COALESCE(v.properties->'tokens', '{}'::jsonb)) AS tk
+                WHERE v.vertex_type = 'enumeration'
+                  AND tk.key ILIKE @needle
+                """;
+            await using var cmd = _db.CreateCommand(sql);
+            cmd.Parameters.AddWithValue("needle", "%" + tokenName + "%");
 
             var matches = new List<object>();
-            foreach (var e in enums)
+            await using var reader = await cmd.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
             {
-                var tokens = e.tokens;
-                if (tokens != null)
+                matches.Add(new
                 {
-                    foreach (var prop in tokens)
-                    {
-                        string tName = prop.Name;
-                        if (tName.Contains(tokenName, StringComparison.OrdinalIgnoreCase))
-                        {
-                            matches.Add(new { enumeration = (string)e.name, token = tName, value = (string)prop.Value });
-                        }
-                    }
-                }
+                    enumeration = reader.GetString(0),
+                    token = reader.GetString(1),
+                    value = reader.IsDBNull(2) ? null : reader.GetString(2),
+                });
             }
-            return JsonConvert.SerializeObject(new { query = tokenName, matches, count = matches.Count }, Formatting.Indented);
+            return JsonSerializer.Serialize(new { query = tokenName, matches, count = matches.Count }, JsonOptions);
         }
 
-        // Look up a specific enumeration by name
-        var enumSql = "SELECT * FROM c WHERE c.label = 'enumeration' AND c.name = @name AND c.doc_type = 'vertex'";
-        var result = await QueryListAsync<dynamic>(new QueryDefinition(enumSql)
-            .WithParameter("@name", enumName));
-
-        if (result.Count == 0)
+        // Direct enum lookup by name.
+        var enumProps = await QuerySingleVertexAsync("enumeration", enumName);
+        if (enumProps is not null)
         {
-            // Try searching constants
-            var constSql = "SELECT * FROM c WHERE c.label = 'constant' AND CONTAINS(c.name, @name, true) AND c.doc_type = 'vertex'";
-            var constants = await QueryListAsync<dynamic>(new QueryDefinition(constSql)
-                .WithParameter("@name", enumName));
-            return JsonConvert.SerializeObject(new { query = enumName, constants, count = constants.Count }, Formatting.Indented);
+            return JsonSerializer.Serialize(new { enumeration = enumProps }, JsonOptions);
         }
 
-        return JsonConvert.SerializeObject(new { enumeration = result[0] }, Formatting.Indented);
+        // Fall back to constant search.
+        var constants = await QueryVerticesContainingNameAsync("constant", enumName);
+        return JsonSerializer.Serialize(new { query = enumName, constants, count = constants.Count }, JsonOptions);
     }
 
     public async Task<string> ResolveTypeAsync(string typeName)
     {
-        var sql = "SELECT * FROM c WHERE c.label = 'type_alias' AND c.name = @name AND c.doc_type = 'vertex'";
-        var result = await QueryListAsync<dynamic>(new QueryDefinition(sql)
-            .WithParameter("@name", typeName));
-
-        if (result.Count == 0)
-            return JsonConvert.SerializeObject(new { error = $"Type '{typeName}' not found." });
-
-        return JsonConvert.SerializeObject(new { type_definition = result[0] }, Formatting.Indented);
+        var type = await QuerySingleVertexAsync("type_alias", typeName);
+        if (type is null)
+        {
+            return JsonSerializer.Serialize(new { error = $"Type '{typeName}' not found." });
+        }
+        return JsonSerializer.Serialize(new { type_definition = type }, JsonOptions);
     }
 
-    // ====================================================================
-    // Enhancement #2: Game Data Definition Lookup
-    // ====================================================================
+    // ──────────────────────────────────────────────────────────────
+    // Game data definitions
+    // ──────────────────────────────────────────────────────────────
 
     public async Task<string> LookupGameDefAsync(string defName)
     {
-        var sql = "SELECT * FROM c WHERE c.label = 'game_def' AND c.name = @name AND c.doc_type = 'vertex'";
-        var result = await QueryListAsync<dynamic>(new QueryDefinition(sql)
-            .WithParameter("@name", defName));
-
-        if (result.Count == 0)
+        var def = await QuerySingleVertexAsync("game_def", defName);
+        if (def is null)
         {
-            // List all available game defs
-            var listSql = "SELECT c.name, c.field_count, c.source_file FROM c WHERE c.label = 'game_def' AND c.doc_type = 'vertex'";
-            var allDefs = await QueryListAsync<dynamic>(new QueryDefinition(listSql));
-            return JsonConvert.SerializeObject(new
+            var allDefs = await QueryVerticesByLabelAsync("game_def", "name", "field_count", "source_file");
+            return JsonSerializer.Serialize(new
             {
                 error = $"Game definition '{defName}' not found.",
                 available_defs = allDefs,
-            }, Formatting.Indented);
+            }, JsonOptions);
         }
 
-        // Get cross-references
-        var refSql = "SELECT * FROM c WHERE c.label = 'references_def' AND STARTSWITH(c.from_id, @prefix) AND c.doc_type = 'edge'";
-        var refs = await QueryListAsync<dynamic>(new QueryDefinition(refSql)
-            .WithParameter("@prefix", $"game_def:{defName}"));
-
-        return JsonConvert.SerializeObject(new
+        var refs = await QueryEdgesByFromPrefixAndTypesAsync($"game_def:{defName}", new[] { "references_def" });
+        return JsonSerializer.Serialize(new
         {
-            definition = result[0],
+            definition = def,
             cross_references = refs,
-        }, Formatting.Indented);
+        }, JsonOptions);
     }
 
-    // ====================================================================
-    // Enhancement #3: Implementation Coverage / Gap Analysis
-    // ====================================================================
+    // ──────────────────────────────────────────────────────────────
+    // Implementation coverage
+    // ──────────────────────────────────────────────────────────────
 
     public async Task<string> GetImplementationStatusAsync(string? entityName)
     {
         if (!string.IsNullOrEmpty(entityName))
         {
-            // Get defined methods for this entity
-            var defMethodsSql = "SELECT c.name, c.method_type FROM c WHERE c.label = 'method' AND c.owner = @owner AND c.doc_type = 'vertex'";
-            var defMethods = await QueryListAsync<dynamic>(new QueryDefinition(defMethodsSql)
-                .WithParameter("@owner", entityName));
+            var defMethods = await QueryVerticesAsync(
+                """
+                SELECT properties->>'name' AS name, properties->>'method_type' AS method_type
+                FROM kg_vertices
+                WHERE vertex_type = 'method' AND properties->>'owner' = @owner
+                """,
+                ("owner", entityName));
 
-            // Get Python implementations
-            var pyMethodsSql = "SELECT c.name FROM c WHERE c.label = 'script_method' AND c.owner_class = @owner AND c.doc_type = 'vertex'";
-            var pyMethods = await QueryListAsync<dynamic>(new QueryDefinition(pyMethodsSql)
-                .WithParameter("@owner", entityName));
+            var pyMethods = await QueryVerticesAsync(
+                """
+                SELECT properties->>'name' AS name FROM kg_vertices
+                WHERE vertex_type = 'script_method' AND properties->>'owner_class' = @owner
+                """,
+                ("owner", entityName));
 
-            // Get C++ implementations (search for methods that call Python methods matching entity methods)
-            var cppMethodsSql = "SELECT c.name, c.owner_class, c.source_file FROM c WHERE c.label = 'cpp_method' AND c.doc_type = 'vertex'";
-            var cppMethods = await QueryListAsync<dynamic>(new QueryDefinition(cppMethodsSql));
+            // C++ implementations — by-name lookup across the whole graph.
+            var cppMethods = await QueryVerticesAsync(
+                """
+                SELECT properties->>'name' AS name, properties->>'owner_class' AS owner_class, properties->>'source_file' AS source_file
+                FROM kg_vertices
+                WHERE vertex_type = 'cpp_method'
+                """);
 
-            var defMethodNames = new HashSet<string>();
-            var defMethodDetails = new List<object>();
-            foreach (var m in defMethods)
+            var defNames = new HashSet<string>(defMethods.Select(m => (string)m["name"]!));
+            var pyNames = new HashSet<string>(pyMethods.Select(m => (string)m["name"]!));
+            var cppNames = new HashSet<string>(cppMethods.Select(m => (string)m["name"]!));
+
+            var coverage = defMethods.Select(m =>
             {
-                string name = (string)m.name;
-                defMethodNames.Add(name);
-                defMethodDetails.Add(new { name, method_type = (string)m.method_type });
-            }
-
-            var pyMethodNames = new HashSet<string>();
-            foreach (var m in pyMethods)
-                pyMethodNames.Add((string)m.name);
-
-            var cppMethodNames = new HashSet<string>();
-            foreach (var m in cppMethods)
-                cppMethodNames.Add((string)m.name);
-
-            var coverage = new List<object>();
-            foreach (var m in defMethodDetails)
-            {
-                string name = (string)((dynamic)m).name;
-                coverage.Add(new
+                var name = (string)m["name"]!;
+                return new
                 {
                     method = name,
-                    method_type = (string)((dynamic)m).method_type,
-                    has_python = pyMethodNames.Contains(name),
-                    has_cpp = cppMethodNames.Contains(name),
-                });
-            }
+                    method_type = m["method_type"] as string,
+                    has_python = pyNames.Contains(name),
+                    has_cpp = cppNames.Contains(name),
+                };
+            }).ToList();
 
-            return JsonConvert.SerializeObject(new
+            return JsonSerializer.Serialize(new
             {
                 entity = entityName,
-                total_defined = defMethodNames.Count,
-                python_implemented = pyMethodNames.Intersect(defMethodNames).Count(),
-                cpp_implemented = cppMethodNames.Intersect(defMethodNames).Count(),
+                total_defined = defNames.Count,
+                python_implemented = pyNames.Intersect(defNames).Count(),
+                cpp_implemented = cppNames.Intersect(defNames).Count(),
                 methods = coverage,
-            }, Formatting.Indented);
+            }, JsonOptions);
         }
 
-        // Overview of all entities
-        var entitiesSql = "SELECT c.name, c.property_count, c.client_method_count, c.cell_method_count, c.base_method_count FROM c WHERE c.label = 'entity' AND c.doc_type = 'vertex'";
-        var entities = await QueryListAsync<dynamic>(new QueryDefinition(entitiesSql));
+        var entities = await QueryVerticesAsync(
+            """
+            SELECT properties FROM kg_vertices WHERE vertex_type = 'entity'
+            """);
 
-        // C++ class count and component breakdown
-        var cppClassSql = "SELECT c.component, COUNT(1) AS count FROM c WHERE c.label = 'cpp_class' AND c.doc_type = 'vertex' GROUP BY c.component";
-        var cppClasses = await QueryListAsync<dynamic>(new QueryDefinition(cppClassSql));
+        var cppByComponent = await ScalarGroupAsync(
+            """
+            SELECT properties->>'component' AS component, COUNT(*) AS count
+            FROM kg_vertices WHERE vertex_type = 'cpp_class'
+            GROUP BY properties->>'component'
+            """);
 
-        var cppTotalSql = "SELECT VALUE COUNT(1) FROM c WHERE c.label = 'cpp_method' AND c.doc_type = 'vertex'";
-        var cppTotal = await QueryScalarAsync<long>(new QueryDefinition(cppTotalSql));
+        var cppTotal = await ScalarLongAsync(
+            "SELECT COUNT(*) FROM kg_vertices WHERE vertex_type = 'cpp_method'");
 
-        return JsonConvert.SerializeObject(new
+        return JsonSerializer.Serialize(new
         {
             entities,
-            cpp_classes_by_component = cppClasses,
+            cpp_classes_by_component = cppByComponent,
             total_cpp_methods = cppTotal,
             note = "Use entity_name parameter for per-entity method coverage",
-        }, Formatting.Indented);
+        }, JsonOptions);
     }
 
-    // ====================================================================
-    // Enhancement #4: Cross-Reference Search
-    // ====================================================================
+    // ──────────────────────────────────────────────────────────────
+    // Cross-reference
+    // ──────────────────────────────────────────────────────────────
 
     public async Task<string> CrossReferenceAsync(string searchTerm)
     {
         var results = new Dictionary<string, object>();
 
-        // Search entity methods
-        var methodSql = "SELECT c.name, c.owner, c.method_type FROM c WHERE c.label = 'method' AND c.name = @name AND c.doc_type = 'vertex'";
-        var methods = await QueryListAsync<dynamic>(new QueryDefinition(methodSql)
-            .WithParameter("@name", searchTerm));
-        if (methods.Count > 0) results["def_methods"] = methods;
+        var defMethods = await QueryVerticesAsync(
+            """
+            SELECT properties FROM kg_vertices
+            WHERE vertex_type = 'method' AND properties->>'name' = @needle
+            """, ("needle", searchTerm));
+        if (defMethods.Count > 0) results["def_methods"] = defMethods;
 
-        // Search script methods
-        var scriptSql = "SELECT c.name, c.owner_class, c.script_type, c.line FROM c WHERE c.label = 'script_method' AND c.name = @name AND c.doc_type = 'vertex'";
-        var scripts = await QueryListAsync<dynamic>(new QueryDefinition(scriptSql)
-            .WithParameter("@name", searchTerm));
-        if (scripts.Count > 0) results["python_implementations"] = scripts;
+        var scriptMethods = await QueryVerticesAsync(
+            """
+            SELECT properties FROM kg_vertices
+            WHERE vertex_type = 'script_method' AND properties->>'name' = @needle
+            """, ("needle", searchTerm));
+        if (scriptMethods.Count > 0) results["python_implementations"] = scriptMethods;
 
-        // Search C++ methods
-        var cppSql = "SELECT c.name, c.owner_class, c.source_file FROM c WHERE c.label = 'cpp_method' AND c.name = @name AND c.doc_type = 'vertex'";
-        var cppMethods = await QueryListAsync<dynamic>(new QueryDefinition(cppSql)
-            .WithParameter("@name", searchTerm));
+        var cppMethods = await QueryVerticesAsync(
+            """
+            SELECT properties FROM kg_vertices
+            WHERE vertex_type = 'cpp_method' AND properties->>'name' = @needle
+            """, ("needle", searchTerm));
         if (cppMethods.Count > 0) results["cpp_implementations"] = cppMethods;
 
-        // Search properties
-        var propSql = "SELECT c.name, c.owner, c.data_type, c.flags, c.replicated FROM c WHERE c.label = 'property' AND c.name = @name AND c.doc_type = 'vertex'";
-        var props = await QueryListAsync<dynamic>(new QueryDefinition(propSql)
-            .WithParameter("@name", searchTerm));
+        var props = await QueryVerticesAsync(
+            """
+            SELECT properties FROM kg_vertices
+            WHERE vertex_type = 'property' AND properties->>'name' = @needle
+            """, ("needle", searchTerm));
         if (props.Count > 0) results["properties"] = props;
 
-        // Search enumerations by token name
-        var enumSql = "SELECT * FROM c WHERE c.label = 'enumeration' AND c.doc_type = 'vertex'";
-        var allEnums = await QueryListAsync<dynamic>(new QueryDefinition(enumSql));
-        var enumMatches = new List<object>();
-        foreach (var e in allEnums)
-        {
-            if (((string)e.name).Contains(searchTerm, StringComparison.OrdinalIgnoreCase))
-                enumMatches.Add(new { name = (string)e.name, token_count = (int)e.token_count });
-            else if (e.tokens != null)
-            {
-                foreach (var t in e.tokens)
-                {
-                    if (((string)t.Name).Contains(searchTerm, StringComparison.OrdinalIgnoreCase))
-                    {
-                        enumMatches.Add(new { enumeration = (string)e.name, token = (string)t.Name, value = (string)t.Value });
-                        break; // One match per enum is enough
-                    }
-                }
-            }
-        }
+        // Enum match — search both enum name and any token.
+        var enumMatches = await QueryVerticesAsync(
+            """
+            SELECT properties FROM kg_vertices
+            WHERE vertex_type = 'enumeration' AND (
+                properties->>'name' ILIKE @needle
+                OR EXISTS (
+                    SELECT 1 FROM jsonb_object_keys(COALESCE(properties->'tokens', '{}'::jsonb)) k
+                    WHERE k ILIKE @needle
+                )
+            )
+            """, ("needle", "%" + searchTerm + "%"));
         if (enumMatches.Count > 0) results["enumerations"] = enumMatches;
 
-        // Search constants
-        var constSql = "SELECT c.name, c[\"value\"] FROM c WHERE c.label = 'constant' AND CONTAINS(c.name, @name, true) AND c.doc_type = 'vertex'";
-        var constants = await QueryListAsync<dynamic>(new QueryDefinition(constSql)
-            .WithParameter("@name", searchTerm));
+        var constants = await QueryVerticesAsync(
+            """
+            SELECT properties FROM kg_vertices
+            WHERE vertex_type = 'constant' AND properties->>'name' ILIKE @needle
+            """, ("needle", "%" + searchTerm + "%"));
         if (constants.Count > 0) results["constants"] = constants;
 
-        // Search game defs
-        var gdSql = "SELECT c.name, c.field_count FROM c WHERE c.label = 'game_def' AND CONTAINS(c.name, @name, true) AND c.doc_type = 'vertex'";
-        var gameDefs = await QueryListAsync<dynamic>(new QueryDefinition(gdSql)
-            .WithParameter("@name", searchTerm));
+        var gameDefs = await QueryVerticesAsync(
+            """
+            SELECT properties FROM kg_vertices
+            WHERE vertex_type = 'game_def' AND properties->>'name' ILIKE @needle
+            """, ("needle", "%" + searchTerm + "%"));
         if (gameDefs.Count > 0) results["game_definitions"] = gameDefs;
 
-        // Search edges (what calls/sends to this method)
-        var callSql = "SELECT c.label, c.from_id, c.to_method FROM c WHERE c.to_method = @name AND c.doc_type = 'edge'";
-        var calls = await QueryListAsync<dynamic>(new QueryDefinition(callSql)
-            .WithParameter("@name", searchTerm));
+        var calls = await QueryEdgesByToMethodAsync(searchTerm);
         if (calls.Count > 0) results["called_by"] = calls;
 
         if (results.Count == 0)
-            return JsonConvert.SerializeObject(new { query = searchTerm, message = "No matches found." });
-
+        {
+            return JsonSerializer.Serialize(new { query = searchTerm, message = "No matches found." });
+        }
         results["query"] = searchTerm;
-        return JsonConvert.SerializeObject(results, Formatting.Indented);
+        return JsonSerializer.Serialize(results, JsonOptions);
     }
 
-    // ====================================================================
-    // Enhancement #5: Protocol Message Map
-    // ====================================================================
+    // ──────────────────────────────────────────────────────────────
+    // Entity protocol
+    // ──────────────────────────────────────────────────────────────
 
     public async Task<string> GetEntityProtocolAsync(string entityName)
     {
-        // Collect the full inheritance chain + interfaces
         var chain = new List<string> { entityName };
         var current = entityName;
         for (int i = 0; i < 10; i++)
         {
-            var sql = "SELECT * FROM c WHERE c.from_id = @fromId AND c.label = 'inherits' AND c.doc_type = 'edge'";
-            var edges = await QueryListAsync<dynamic>(new QueryDefinition(sql)
-                .WithParameter("@fromId", $"entity:{current}"));
-            if (edges.Count == 0) break;
-            string parent = ((string)edges[0].to_id).Replace("entity:", "");
+            var parents = await QueryEdgesByFromAndTypeAsync($"entity:{current}", "inherits");
+            if (parents.Count == 0) break;
+            var parent = ((string)parents[0]["to_id"]!).Replace("entity:", "");
             chain.Add(parent);
             current = parent;
         }
 
-        // Get interfaces
-        var ifaceSql = "SELECT c.to_id FROM c WHERE c.from_id = @fromId AND c.label = 'implements' AND c.doc_type = 'edge'";
-        var ifaceEdges = await QueryListAsync<dynamic>(new QueryDefinition(ifaceSql)
-            .WithParameter("@fromId", $"entity:{entityName}"));
+        var ifaceEdges = await QueryEdgesByFromAndTypeAsync($"entity:{entityName}", "implements");
         var interfaces = new List<string>();
         foreach (var edge in ifaceEdges)
         {
-            string iface = ((string)edge.to_id).Replace("entity:", "");
+            var iface = ((string)edge["to_id"]!).Replace("entity:", "");
             interfaces.Add(iface);
             chain.Add(iface);
         }
 
-        // Collect all methods across the chain
         var clientMethods = new List<object>();
         var cellMethods = new List<object>();
         var baseMethods = new List<object>();
@@ -666,31 +584,45 @@ public class CimmeriaGraphService
 
         foreach (var owner in chain)
         {
-            var methodsSql = "SELECT * FROM c WHERE c.label = 'method' AND c.owner = @owner AND c.doc_type = 'vertex'";
-            var methods = await QueryListAsync<dynamic>(new QueryDefinition(methodsSql)
-                .WithParameter("@owner", owner));
-
+            var methods = await QueryVerticesByOwnerAndTypeAsync(owner, "method");
             foreach (var m in methods)
             {
-                string methodType = (string)m.method_type;
-                var info = new { name = (string)m.name, defined_in = owner, exposed = (bool)m.exposed, arg_count = (int)m.arg_count, args = m.args };
-                if (methodType == "client") clientMethods.Add(info);
-                else if (methodType == "cell") cellMethods.Add(info);
-                else if (methodType == "base") baseMethods.Add(info);
+                var props = m;
+                var methodType = TryGetString(props, "method_type");
+                var info = new
+                {
+                    name = TryGetString(props, "name"),
+                    defined_in = owner,
+                    exposed = TryGetBool(props, "exposed"),
+                    arg_count = TryGetInt(props, "arg_count"),
+                    args = TryGetField(props, "args"),
+                };
+                switch (methodType)
+                {
+                    case "client": clientMethods.Add(info); break;
+                    case "cell": cellMethods.Add(info); break;
+                    case "base": baseMethods.Add(info); break;
+                }
             }
 
-            var propsSql = "SELECT c.name, c.data_type, c.flags FROM c WHERE c.label = 'property' AND c.owner = @owner AND c.replicated = true AND c.doc_type = 'vertex'";
-            var props = await QueryListAsync<dynamic>(new QueryDefinition(propsSql)
-                .WithParameter("@owner", owner));
-            foreach (var p in props)
-                replicatedProps.Add(new { name = (string)p.name, data_type = (string)p.data_type, flags = (string)p.flags, defined_in = owner });
+            var props2 = await QueryVerticesByOwnerAndTypeAsync(owner, "property");
+            foreach (var p in props2)
+            {
+                if (!TryGetBool(p, "replicated")) continue;
+                replicatedProps.Add(new
+                {
+                    name = TryGetString(p, "name"),
+                    data_type = TryGetString(p, "data_type"),
+                    flags = TryGetString(p, "flags"),
+                    defined_in = owner,
+                });
+            }
         }
 
-        // Separate exposed base methods (client-callable) from internal
-        var exposedBaseMethods = baseMethods.Where(m => (bool)((dynamic)m).exposed).ToList();
-        var internalBaseMethods = baseMethods.Where(m => !(bool)((dynamic)m).exposed).ToList();
+        var exposedBase = baseMethods.Where(m => ((dynamic)m).exposed == true).ToList();
+        var internalBase = baseMethods.Where(m => ((dynamic)m).exposed != true).ToList();
 
-        return JsonConvert.SerializeObject(new
+        return JsonSerializer.Serialize(new
         {
             entity = entityName,
             inheritance_chain = chain,
@@ -706,14 +638,14 @@ public class CimmeriaGraphService
                 client_to_server = new
                 {
                     description = "Methods the client can call on the server (Exposed BaseMethods)",
-                    methods = exposedBaseMethods,
-                    count = exposedBaseMethods.Count,
+                    methods = exposedBase,
+                    count = exposedBase.Count,
                 },
                 server_internal_base = new
                 {
                     description = "Internal server-side base methods (not client-callable)",
-                    methods = internalBaseMethods,
-                    count = internalBaseMethods.Count,
+                    methods = internalBase,
+                    count = internalBase.Count,
                 },
                 cell_methods = new
                 {
@@ -728,71 +660,313 @@ public class CimmeriaGraphService
                     count = replicatedProps.Count,
                 },
             },
-        }, Formatting.Indented);
+        }, JsonOptions);
     }
 
-    // ====================================================================
-    // Enhancement #6: BigWorld API Reference
-    // ====================================================================
+    // ──────────────────────────────────────────────────────────────
+    // BigWorld API
+    // ──────────────────────────────────────────────────────────────
 
     public async Task<string> LookupBigWorldApiAsync(string? apiName)
     {
         if (!string.IsNullOrEmpty(apiName))
         {
-            // Find all usages of this BigWorld API
-            var sql = "SELECT c.from_id, c.label FROM c WHERE c.label = 'uses_bigworld' AND c.to_method = @name AND c.doc_type = 'edge'";
-            var usages = await QueryListAsync<dynamic>(new QueryDefinition(sql)
-                .WithParameter("@name", apiName));
+            var usages = await QueryEdgesAsync(
+                """
+                SELECT from_id, properties->>'label' AS label
+                FROM kg_edges
+                WHERE edge_type = 'uses_bigworld' AND properties->>'to_method' = @api
+                """, ("api", apiName));
 
-            // Also search C++ implementations
-            var cppSql = "SELECT c.name, c.owner_class, c.source_file FROM c WHERE c.label = 'cpp_method' AND CONTAINS(c.name, @name, true) AND c.doc_type = 'vertex'";
-            var cppImpls = await QueryListAsync<dynamic>(new QueryDefinition(cppSql)
-                .WithParameter("@name", apiName));
+            var cppImpls = await QueryVerticesAsync(
+                """
+                SELECT properties FROM kg_vertices
+                WHERE vertex_type = 'cpp_method' AND properties->>'name' ILIKE @needle
+                """, ("needle", "%" + apiName + "%"));
 
-            return JsonConvert.SerializeObject(new
+            return JsonSerializer.Serialize(new
             {
                 api = apiName,
                 python_usages = usages,
                 python_usage_count = usages.Count,
                 cpp_implementations = cppImpls,
-            }, Formatting.Indented);
+            }, JsonOptions);
         }
 
-        // List all BigWorld APIs used across the codebase
-        var allSql = "SELECT c.to_method, COUNT(1) AS usage_count FROM c WHERE c.label = 'uses_bigworld' AND c.doc_type = 'edge' GROUP BY c.to_method";
-        var allApis = await QueryListAsync<dynamic>(new QueryDefinition(allSql));
+        var allApis = await ScalarGroupAsync(
+            """
+            SELECT properties->>'to_method' AS to_method, COUNT(*) AS usage_count
+            FROM kg_edges WHERE edge_type = 'uses_bigworld'
+            GROUP BY properties->>'to_method'
+            """);
 
-        return JsonConvert.SerializeObject(new
+        return JsonSerializer.Serialize(new
         {
             bigworld_apis = allApis,
             total_apis = allApis.Count,
-        }, Formatting.Indented);
+        }, JsonOptions);
     }
 
-    private async Task<List<dynamic>> QueryListAsync<T>(QueryDefinition queryDef)
+    // ──────────────────────────────────────────────────────────────
+    // Postgres helpers — each method below maps a Cosmos query
+    // pattern to one or two SQL templates. The patterns repeat enough
+    // to make the helpers worth the boilerplate.
+    // ──────────────────────────────────────────────────────────────
+
+    private async Task<JsonElement?> GetVertexAsync(string id)
     {
-        var items = new List<dynamic>();
-        using var iter = _container.GetItemQueryIterator<dynamic>(queryDef, requestOptions: new QueryRequestOptions
-        {
-            MaxItemCount = 1000,
-        });
-        while (iter.HasMoreResults)
-        {
-            var resp = await iter.ReadNextAsync();
-            items.AddRange(resp);
-        }
-        return items;
+        await using var cmd = _db.CreateCommand("SELECT properties FROM kg_vertices WHERE id = @id");
+        cmd.Parameters.AddWithValue("id", id);
+        await using var reader = await cmd.ExecuteReaderAsync();
+        if (!await reader.ReadAsync()) return null;
+        return JsonDocument.Parse(reader.GetString(0)).RootElement.Clone();
     }
 
-    private async Task<T> QueryScalarAsync<T>(QueryDefinition queryDef)
+    private async Task<JsonElement?> QuerySingleVertexAsync(string vertexType, string name)
     {
-        using var iter = _container.GetItemQueryIterator<T>(queryDef);
-        while (iter.HasMoreResults)
-        {
-            var resp = await iter.ReadNextAsync();
-            foreach (var item in resp)
-                return item;
-        }
-        return default!;
+        await using var cmd = _db.CreateCommand(
+            "SELECT properties FROM kg_vertices WHERE vertex_type = @t AND name = @n LIMIT 1");
+        cmd.Parameters.AddWithValue("t", vertexType);
+        cmd.Parameters.AddWithValue("n", name);
+        await using var reader = await cmd.ExecuteReaderAsync();
+        if (!await reader.ReadAsync()) return null;
+        return JsonDocument.Parse(reader.GetString(0)).RootElement.Clone();
     }
+
+    private async Task<List<JsonElement>> QueryVerticesByOwnerAndTypeAsync(string owner, string vertexType)
+    {
+        await using var cmd = _db.CreateCommand(
+            """
+            SELECT properties FROM kg_vertices
+            WHERE vertex_type = @t AND properties->>'owner' = @owner
+            """);
+        cmd.Parameters.AddWithValue("t", vertexType);
+        cmd.Parameters.AddWithValue("owner", owner);
+
+        var rows = new List<JsonElement>();
+        await using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            rows.Add(JsonDocument.Parse(reader.GetString(0)).RootElement.Clone());
+        }
+        return rows;
+    }
+
+    private async Task<long> CountVerticesByOwnerAndTypeAsync(string owner, string vertexType)
+    {
+        await using var cmd = _db.CreateCommand(
+            """
+            SELECT COUNT(*) FROM kg_vertices
+            WHERE vertex_type = @t AND properties->>'owner' = @owner
+            """);
+        cmd.Parameters.AddWithValue("t", vertexType);
+        cmd.Parameters.AddWithValue("owner", owner);
+        var v = await cmd.ExecuteScalarAsync();
+        return v is long l ? l : Convert.ToInt64(v);
+    }
+
+    private async Task<List<object>> QueryVerticesByLabelAsync(string label, params string[] fields)
+    {
+        var fieldList = string.Join(", ", fields.Select(f => $"properties->>'{f}' AS \"{f}\""));
+        await using var cmd = _db.CreateCommand(
+            $"SELECT {fieldList} FROM kg_vertices WHERE vertex_type = @t");
+        cmd.Parameters.AddWithValue("t", label);
+
+        var rows = new List<object>();
+        await using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            var row = new Dictionary<string, object?>();
+            for (int i = 0; i < fields.Length; i++)
+            {
+                row[fields[i]] = reader.IsDBNull(i) ? null : reader.GetString(i);
+            }
+            rows.Add(row);
+        }
+        return rows;
+    }
+
+    private async Task<List<object>> QueryVerticesContainingNameAsync(string vertexType, string needle)
+    {
+        await using var cmd = _db.CreateCommand(
+            """
+            SELECT properties FROM kg_vertices
+            WHERE vertex_type = @t AND properties->>'name' ILIKE @needle
+            """);
+        cmd.Parameters.AddWithValue("t", vertexType);
+        cmd.Parameters.AddWithValue("needle", "%" + needle + "%");
+
+        var rows = new List<object>();
+        await using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            rows.Add(JsonDocument.Parse(reader.GetString(0)).RootElement.Clone());
+        }
+        return rows;
+    }
+
+    private async Task<List<Dictionary<string, object?>>> QueryVerticesAsync(
+        string sql, params (string Name, object Value)[] parameters)
+    {
+        await using var cmd = _db.CreateCommand(sql);
+        foreach (var (n, v) in parameters)
+        {
+            cmd.Parameters.AddWithValue(n, v);
+        }
+
+        var rows = new List<Dictionary<string, object?>>();
+        await using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            var row = new Dictionary<string, object?>();
+            for (int i = 0; i < reader.FieldCount; i++)
+            {
+                row[reader.GetName(i)] = reader.IsDBNull(i) ? null : reader.GetValue(i);
+            }
+            rows.Add(row);
+        }
+        return rows;
+    }
+
+    private async Task<List<Dictionary<string, object?>>> QueryEdgesByFromAsync(string fromId)
+        => await QueryEdgesAsync(
+            """
+            SELECT id, from_id, to_id, edge_type, properties->>'label' AS label
+            FROM kg_edges WHERE from_id = @id
+            """,
+            ("id", fromId));
+
+    private async Task<List<Dictionary<string, object?>>> QueryEdgesByToAsync(string toId)
+        => await QueryEdgesAsync(
+            """
+            SELECT id, from_id, to_id, edge_type, properties->>'label' AS label
+            FROM kg_edges WHERE to_id = @id
+            """,
+            ("id", toId));
+
+    private async Task<List<Dictionary<string, object?>>> QueryEdgesByFromAndTypeAsync(string fromId, string edgeType)
+        => await QueryEdgesAsync(
+            """
+            SELECT id, from_id, to_id, edge_type, properties
+            FROM kg_edges
+            WHERE from_id = @id
+              AND (edge_type = @t OR properties->>'label' = @t)
+            """,
+            ("id", fromId), ("t", edgeType));
+
+    private async Task<List<Dictionary<string, object?>>> QueryEdgesByToAndTypeAsync(string toId, string edgeType)
+        => await QueryEdgesAsync(
+            """
+            SELECT id, from_id, to_id, edge_type, properties
+            FROM kg_edges
+            WHERE to_id = @id
+              AND (edge_type = @t OR properties->>'label' = @t)
+            """,
+            ("id", toId), ("t", edgeType));
+
+    private async Task<List<Dictionary<string, object?>>> QueryEdgesByFromPrefixAndTypesAsync(
+        string fromPrefix, string[] edgeTypes)
+        => await QueryEdgesAsync(
+            """
+            SELECT id, from_id, to_id, edge_type, properties
+            FROM kg_edges
+            WHERE from_id LIKE @prefix
+              AND (edge_type = ANY(@types) OR properties->>'label' = ANY(@types))
+            """,
+            ("prefix", fromPrefix + "%"), ("types", edgeTypes));
+
+    private async Task<List<Dictionary<string, object?>>> QueryEdgesByToMethodAndTypesAsync(
+        string toMethod, string[] edgeTypes)
+        => await QueryEdgesAsync(
+            """
+            SELECT id, from_id, to_id, edge_type, properties
+            FROM kg_edges
+            WHERE properties->>'to_method' = @m
+              AND (edge_type = ANY(@types) OR properties->>'label' = ANY(@types))
+            """,
+            ("m", toMethod), ("types", edgeTypes));
+
+    private async Task<List<Dictionary<string, object?>>> QueryEdgesByToMethodAsync(string toMethod)
+        => await QueryEdgesAsync(
+            """
+            SELECT properties->>'label' AS label, from_id, properties->>'to_method' AS to_method
+            FROM kg_edges WHERE properties->>'to_method' = @m
+            """,
+            ("m", toMethod));
+
+    private async Task<List<Dictionary<string, object?>>> QueryEdgesAsync(
+        string sql, params (string Name, object Value)[] parameters)
+    {
+        await using var cmd = _db.CreateCommand(sql);
+        foreach (var (n, v) in parameters)
+        {
+            cmd.Parameters.AddWithValue(n, v);
+        }
+
+        var rows = new List<Dictionary<string, object?>>();
+        await using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            var row = new Dictionary<string, object?>();
+            for (int i = 0; i < reader.FieldCount; i++)
+            {
+                var name = reader.GetName(i);
+                if (reader.IsDBNull(i)) { row[name] = null; continue; }
+                // jsonb columns deserialise to string by default;
+                // expand `properties` so callers can introspect.
+                if (name == "properties")
+                {
+                    row[name] = JsonDocument.Parse(reader.GetString(i)).RootElement.Clone();
+                }
+                else
+                {
+                    row[name] = reader.GetValue(i);
+                }
+            }
+            rows.Add(row);
+        }
+        return rows;
+    }
+
+    private async Task<List<object>> ScalarGroupAsync(string sql)
+    {
+        await using var cmd = _db.CreateCommand(sql);
+        var rows = new List<object>();
+        await using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            rows.Add(new
+            {
+                key = reader.IsDBNull(0) ? null : reader.GetString(0),
+                count = reader.GetInt64(1),
+            });
+        }
+        return rows;
+    }
+
+    private async Task<long> ScalarLongAsync(string sql)
+    {
+        await using var cmd = _db.CreateCommand(sql);
+        var v = await cmd.ExecuteScalarAsync();
+        return v is long l ? l : Convert.ToInt64(v);
+    }
+
+    // ── JSON property accessors ───────────────────────────────────
+
+    private static string? TryGetString(JsonElement el, string field) =>
+        el.ValueKind == JsonValueKind.Object && el.TryGetProperty(field, out var v) && v.ValueKind == JsonValueKind.String
+            ? v.GetString() : null;
+
+    private static bool TryGetBool(JsonElement el, string field) =>
+        el.ValueKind == JsonValueKind.Object
+        && el.TryGetProperty(field, out var v)
+        && (v.ValueKind == JsonValueKind.True
+            || (v.ValueKind == JsonValueKind.String && bool.TryParse(v.GetString(), out var b) && b));
+
+    private static int TryGetInt(JsonElement el, string field) =>
+        el.ValueKind == JsonValueKind.Object && el.TryGetProperty(field, out var v) && v.ValueKind == JsonValueKind.Number
+            ? v.GetInt32() : 0;
+
+    private static object? TryGetField(JsonElement el, string field) =>
+        el.ValueKind == JsonValueKind.Object && el.TryGetProperty(field, out var v) ? v.Clone() : null;
 }

@@ -100,89 +100,100 @@ On first start, the Postgres container runs `postgres-init/01_schema.sql`
 against a fresh database, creating the pgvector tables and indexes.
 Subsequent restarts skip the init script.
 
-## C# refactor — what still has to happen
+## What this PR completes vs leaves open
 
-This compose file is the **target topology**. The current
-`src/CimmeriaMcp.Functions/` project will not run against the
-services defined here until the following changes land:
+| Step | Status |
+|---|---|
+| Functions → ASP.NET Core MCP-over-HTTP | ✅ done |
+| Cosmos DB knowledge-graph → Postgres `kg_vertices` + `kg_edges` | ✅ done (graph service rewritten) |
+| Azure AI Search → pgvector + pg_trgm | ✅ done (search service rewritten) |
+| Azure SignalR Service → in-process `AspNetCore.SignalR.Hub` | ✅ done |
+| App Insights / Monitor → OTLP | ✅ done (auto-instrumented via `OpenTelemetry.Instrumentation.AspNetCore`) |
+| Indexer (Cosmos change-feed → scheduled `BackgroundService`) | ⚠️ shell only — heartbeat updates `mcp_indexer_state`, actual indexing body is TODO |
+| AI skills (14 prompt-engineered tools, ~1300 lines in `CimmeriaSummarizationService`) | ⚠️ stubbed — each tool is registered and visible in `tools/list`, but returns a structured `port_pending` JSON envelope. Search + graph tools work; AI skills need their own focused port PR. |
+| Data migration from Cosmos to Postgres | ❌ operator task — see "Data migration" below |
 
-### Step 1 — Functions → ASP.NET Core MCP-over-HTTP
+The 6 search tools and 14 knowledge-graph tools work end-to-end
+against Postgres + pgvector after the data migration runs. The AI
+skills surface in the catalogue so MCP clients still see all 34
+tools, but until the prompt-engineering port lands they direct the
+caller at the search + graph tools as the immediate workaround.
 
-- Delete dependency on `Microsoft.Azure.Functions.Worker.Extensions.Mcp`.
-- Switch from `[Function]` + `[McpToolTrigger]` to whichever transport
-  the official MCP C# SDK exposes (or a hand-rolled JSON-RPC over HTTP
-  endpoint at e.g. `POST /mcp`).
-- Replace the Functions auth model (`x-functions-key`) with
-  `Authorization: Bearer ${MCP_API_KEY}` middleware.
-- Add an `/health` endpoint for the Dockerfile healthcheck.
+## Code structure after the refactor
 
-### Step 2 — Cosmos DB → Postgres
+```text
+src/CimmeriaMcp.Functions/        (folder kept for git history; AssemblyName=CimmeriaMcp)
+├── CimmeriaMcp.Functions.csproj   (Web SDK; no Azure Functions deps)
+├── Program.cs                     (ASP.NET Core host + DI + OTel + endpoints)
+├── Mcp/
+│   ├── McpToolAttribute.cs        ([McpTool("name", "description")])
+│   ├── McpPropertyAttribute.cs    ([McpProperty("name", "description", isRequired:true)])
+│   ├── JsonRpc.cs                 (JSON-RPC 2.0 + MCP wire types)
+│   ├── McpDispatcher.cs           (reflection-based tool registry)
+│   └── McpEndpoint.cs             (POST /mcp handler)
+├── Auth/BearerAuthMiddleware.cs   (constant-time bearer-token check)
+├── Hubs/CimmeriaHub.cs            (in-process SignalR Hub for tool-event broadcasts)
+├── Services/
+│   ├── CimmeriaSearchService.cs   (Npgsql + pgvector — 6 search tools)
+│   ├── CimmeriaGraphService.cs    (Npgsql — 14 graph tools)
+│   ├── CimmeriaSummarizationService.cs  (stub — AI skills awaiting port)
+│   ├── SignalRBroadcastService.cs (wraps every tool with broadcast + error envelope)
+│   └── IndexerService.cs          (BackgroundService — heartbeat only)
+└── Tools/
+    ├── CimmeriaSearchTools.cs     (6 MCP tools)
+    ├── CimmeriaGraphTools.cs      (14 MCP tools)
+    └── CimmeriaAiTools.cs         (14 MCP tools)
+```
 
-- Replace the `Microsoft.Azure.Cosmos` dependency with `Npgsql` (+
-  `Microsoft.EntityFrameworkCore` if EF is preferred over raw
-  Npgsql; raw Npgsql keeps things smaller).
-- `CimmeriaGraphService` rewrites its 14 query methods against the
-  `kg_vertices` + `kg_edges` tables. Snake_case property fields stay
-  in JSONB so the existing JSON shape passed to LLMs is unchanged.
-- Delete `Functions/IndexerTrigger.cs`. Replace with a
-  `BackgroundService` that polls `mcp_indexer_state` on a 5-minute
-  cadence and re-runs the indexer when source repos move.
+## Data migration (operator task)
 
-### Step 3 — Azure AI Search → pgvector
+The Postgres schema is empty after first start. To populate it from
+the existing Cosmos data:
 
-- Delete the `Azure.Search.Documents` dependency.
-- `CimmeriaSearchService.SearchAsync` issues two queries:
-  - Primary: cosine similarity ORDER BY `embedding <=> :query_embedding`
-    LIMIT k.
-  - Fallback when cosine returns nothing useful: trigram similarity
-    via `pg_trgm` (`content % :keyword`).
-  - The "hybrid" score is the weighted sum of the two — same shape
-    the Azure AI Search hybrid query returned.
+1. **Export from Cosmos.** For each container, use `azcopy` or the
+   Cosmos data-migration tool to dump as JSONL.
+2. **Map fields.** The Postgres tables preserve the snake_case JSONB
+   shape, so most fields go directly into the `properties` column.
+   Per-table mapping:
+   - `code-chunks` → `code_chunks` (`id`, `source_project`, `file_path`,
+     `language`, `content`, `embedding`, `metadata` jsonb).
+   - `knowledge-graph` doc_type=vertex → `kg_vertices` (`id`, `pk`,
+     `vertex_type` from `label`, `name`, the rest goes into `properties`).
+   - `knowledge-graph` doc_type=edge → `kg_edges` (`id`, `pk`,
+     `from_id`, `to_id`, `edge_type` from `label`, the rest into
+     `properties`).
+   - `leases` → discard (no Postgres equivalent needed).
+3. **Import via `COPY`.** A one-shot script per table, e.g.:
 
-### Step 4 — Azure SignalR Service → in-process Hub
+   ```sh
+   psql $DATABASE_URL -c "\COPY code_chunks (id, source_project, file_path, language, content, embedding, metadata) FROM 'chunks.csv' WITH (FORMAT csv)"
+   ```
 
-- Delete the `Microsoft.Azure.Functions.Worker.Extensions.SignalRService`
-  dependency.
-- `SignalRBroadcastService` becomes a plain
-  `Microsoft.AspNetCore.SignalR.Hub`. The JWT-token-mint REST POST
-  path goes away; clients connect to the hub via WebSocket/SSE.
-- Tool invocation telemetry continues to broadcast — just over the
-  in-process hub instead of through Azure.
+4. **Re-embed if dimensions change.** The schema uses
+   `vector(1536)` to match `text-embedding-3-small` defaults. If the
+   Cosmos data was truncated to a different dimensionality (the
+   cloud deployment used 505-dim — see CLAUDE.md), drop the embedding
+   column, re-create at 1536-dim, and re-embed via the Azure OpenAI
+   client.
 
-### Step 5 — App Insights → OTLP
-
-- Delete `Functions/MetricsEndpoint.cs` and `Services/MetricsService.cs`.
-- Add `OpenTelemetry.Exporter.OpenTelemetryProtocol` to the project.
-- Wire the SDK to read `OTEL_EXPORTER_OTLP_ENDPOINT` /
-  `OTEL_SERVICE_NAME` env vars — the same contract the Cimmeria
-  Rust side already uses. Application Insights data goes away;
-  SigNoz dashboards become the operational pane of glass.
-
-### Step 6 — Data migration
-
-- Export Cosmos containers to JSONL via `azcopy` / the Cosmos SDK.
-- For each container, run a one-shot `COPY ... FROM STDIN` import
-  into the matching Postgres table. The JSONB columns accept the
-  Cosmos document shape verbatim, so the import is one
-  `jq '{id, pk, vertex_type: .vertex_type, name, properties: .}'`
-  pipeline per table.
-- Re-embed `code_chunks` if you want them fresh, or copy the existing
-  Azure AI Search embeddings over (same model + dimensions).
+A scripted migration tool is a follow-up; this PR doesn't ship one.
 
 ## Why the layered approach
 
-The compose + schema lands first because:
+The compose + schema landed first because:
 
-1. It locks down the env-var contract so the C# refactor has a
-   stable target (no rewriting handler signatures three times
-   chasing config changes).
-2. It lets ops bring up Postgres + an empty MCP container on the
-   colo for end-to-end network validation (Cloudflare Tunnel
-   routing, OTLP reachability) before the code work begins.
-3. It makes the rollback story clear: until the new compose is
-   producing useful query responses, the Azure-Functions deployment
-   stays the production path. Cut over only after the colo MCP
-   answers the same queries with the same shapes.
+1. It locked down the env-var contract so the C# refactor had a
+   stable target.
+2. It let ops validate the network topology (Cloudflare Tunnel
+   routing, OTLP reachability, Postgres bootstrap) before code work
+   began.
+3. It made the rollback story crisp: until the colo MCP answered
+   real queries with the same shapes, the cloud deployment stayed
+   the production path.
+
+With this PR, the colo deployment is functional for search + graph
+tools. The AI skills port lands as a follow-up PR with its own focus
+on prompt-engineering fidelity.
 
 ## Trade-offs worth knowing
 
