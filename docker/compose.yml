@@ -1,0 +1,151 @@
+# Cimmeria-MCP — self-hosted colo deployment.
+#
+# Target topology after the Azure migration. The MCP server and its
+# data store (Postgres + pgvector) run on the same colo host as the
+# Cimmeria game server and the SigNoz observability stack. The only
+# remaining cloud dependency is Azure OpenAI itself — every other
+# Azure resource (AI Search, Cosmos DB, SignalR Service, App Insights,
+# Functions runtime) is gone, replaced by local services or in-process
+# equivalents.
+#
+# # Status
+#
+# This file is the *target* deployment. The C# app currently in
+# `src/CimmeriaMcp.Functions/` is still Azure-Functions-based and
+# Cosmos/AI-Search-backed; it will not run against the services
+# defined here without the refactor described in
+# `docs/colo-deployment.md`. The compose file ships first so the
+# deployment surface area is locked in before the code work begins.
+#
+# # Usage (after C# refactor lands)
+#
+#   # 1. Make sure Cimmeria's compose stack is running on this host
+#   #    (provides SigNoz collector + the shared docker network).
+#   # 2. Copy .env.example to .env and fill in OPENAI_*, POSTGRES_PASSWORD,
+#   #    MCP_API_KEY, and SIGNOZ_NETWORK_NAME.
+#   # 3. Bring it up:
+#   docker compose --env-file .env -f docker/compose.yml up -d
+#
+# # Networking — sharing SigNoz across compose projects
+#
+# Cimmeria's compose project creates a docker network when it starts
+# (default name `<project>_default`, typically `cimmeria_default`). The
+# `signoz` network below joins that network as external so the MCP
+# container can reach `otel-collector:4317` by DNS. If your Cimmeria
+# project name differs, set `SIGNOZ_NETWORK_NAME` in `.env`.
+
+services:
+  cimmeria-mcp:
+    image: ghcr.io/sandboxservers/cimmeria-mcp:latest-prerelease
+    container_name: cimmeria-mcp
+    restart: unless-stopped
+    # MCP HTTP endpoint. Bound to loopback by default — front it with
+    # the same Cloudflare Tunnel that exposes the SigNoz UI if you
+    # need remote LLM access. Override via MCP_BIND env to expose
+    # behind a LAN firewall.
+    ports:
+      - "${MCP_BIND:-127.0.0.1}:7071:8080"
+    environment:
+      # Database — local Postgres + pgvector. The compose internal
+      # DNS resolves `postgres` to the sibling service.
+      DATABASE_URL: "Host=postgres;Port=5432;Database=cimmeria_mcp;Username=mcp;Password=${POSTGRES_PASSWORD:?must be set}"
+
+      # Azure OpenAI — the ONLY remaining cloud dependency. The MCP
+      # server calls out from the colo to Azure for embeddings + chat
+      # completions. Deployment names map to whatever you have in
+      # your Azure OpenAI resource; the defaults match the v34-tools
+      # configuration documented in CLAUDE.md.
+      OPENAI_ENDPOINT: "${OPENAI_ENDPOINT:?must be set}"
+      OPENAI_KEY: "${OPENAI_KEY:?must be set}"
+      OPENAI_EMBEDDING_DEPLOYMENT: "${OPENAI_EMBEDDING_DEPLOYMENT:-text-embedding-3-small}"
+      OPENAI_CHAT_DEPLOYMENT: "${OPENAI_CHAT_DEPLOYMENT:-gpt-5.1-chat}"
+      OPENAI_CODEX_DEPLOYMENT: "${OPENAI_CODEX_DEPLOYMENT:-gpt-5.1-codex-mini}"
+
+      # Observability — ships logs + traces to the SigNoz stack
+      # running in Cimmeria's compose project on this same host. The
+      # `otel-collector` hostname resolves because both projects share
+      # the external network declared at the bottom of this file.
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4317"
+      OTEL_EXPORTER_OTLP_PROTOCOL: "grpc"
+      OTEL_SERVICE_NAME: "cimmeria-mcp"
+      OTEL_RESOURCE_ATTRIBUTES: "deployment.environment=colo,service.namespace=cimmeria"
+
+      # MCP HTTP auth — replaces the Azure Functions `x-functions-key`
+      # the cloud deployment used. The MCP client (Claude Code, custom
+      # agents, etc.) presents this as the `Authorization: Bearer`
+      # header on every request.
+      MCP_API_KEY: "${MCP_API_KEY:?must be set}"
+
+      # ASP.NET Core binding. The Dockerfile's runtime image listens
+      # on 0.0.0.0:8080 inside the container; the host port mapping
+      # above governs external reachability.
+      ASPNETCORE_URLS: "http://0.0.0.0:8080"
+      ASPNETCORE_ENVIRONMENT: "Production"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - default
+      - signoz
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    labels:
+      # Picked up by the Cimmeria-side watchtower running on this
+      # host — no need to run a second watchtower instance from this
+      # compose. New `:latest-prerelease` images get auto-pulled on
+      # the same 5-minute cadence as the game server.
+      - "com.centurylinklabs.watchtower.enable=true"
+
+  postgres:
+    image: pgvector/pgvector:pg17
+    container_name: cimmeria-mcp-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: cimmeria_mcp
+      POSTGRES_USER: mcp
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?must be set}"
+      # Tune for the analytical workload: code-chunk searches with
+      # 1536-dim vector similarity are memory-heavy. The defaults
+      # (128 MB shared_buffers, 4 MB work_mem) leave HNSW queries
+      # spilling to disk; raise both. Adjust to fit your colo box.
+      POSTGRES_INITDB_ARGS: "--data-checksums"
+    volumes:
+      - mcp-postgres-data:/var/lib/postgresql/data
+      - ./postgres-init:/docker-entrypoint-initdb.d:ro
+    # NO published host ports. The DB is only reachable from
+    # cimmeria-mcp on the compose internal network. If you need
+    # psql access from the host, use `docker exec`:
+    #   docker compose exec postgres psql -U mcp cimmeria_mcp
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mcp -d cimmeria_mcp"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    command:
+      - "postgres"
+      - "-c"
+      - "shared_buffers=512MB"
+      - "-c"
+      - "work_mem=32MB"
+      - "-c"
+      - "maintenance_work_mem=256MB"
+      - "-c"
+      - "max_connections=50"
+
+volumes:
+  mcp-postgres-data:
+
+networks:
+  # Internal compose network — postgres ↔ cimmeria-mcp.
+  default:
+  # External network shared with Cimmeria's compose project so the
+  # MCP container can reach `otel-collector:4317` for OTLP ingest.
+  # The default value here assumes Cimmeria's compose project is
+  # named `cimmeria` (project directory). Override via .env if your
+  # deployment uses a different name.
+  signoz:
+    external: true
+    name: "${SIGNOZ_NETWORK_NAME:-cimmeria_default}"

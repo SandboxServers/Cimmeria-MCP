@@ -32,3 +32,6 @@ Thumbs.db
 .DS_Store
 infra/terraform.tfstate.*
 deploy.zip
+
+## Docker / colo deployment
+docker/.env

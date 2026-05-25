@@ -1,39 +1,56 @@
-<Project Sdk="Microsoft.NET.Sdk">
+<!-- Project folder name kept as `CimmeriaMcp.Functions` for now to
+     minimise blast radius on the git history. AssemblyName is
+     `CimmeriaMcp` so the published binary matches what the colo
+     Dockerfile expects. Folder rename to a clean `CimmeriaMcp` is
+     a follow-up cleanup. -->
+<Project Sdk="Microsoft.NET.Sdk.Web">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
-    <AzureFunctionsVersion>v4</AzureFunctionsVersion>
     <OutputType>Exe</OutputType>
+    <AssemblyName>CimmeriaMcp</AssemblyName>
+    <RootNamespace>CimmeriaMcp</RootNamespace>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <AzureCosmosDisableNewtonsoftJsonCheck>true</AzureCosmosDisableNewtonsoftJsonCheck>
     <InternalsVisibleTo>CimmeriaMcp.Functions.Tests</InternalsVisibleTo>
   </PropertyGroup>
 
   <ItemGroup>
-    <FrameworkReference Include="Microsoft.AspNetCore.App" />
-    <PackageReference Include="Microsoft.Azure.Functions.Worker" Version="2.51.0" />
-    <PackageReference Include="Microsoft.Azure.Functions.Worker.Sdk" Version="2.0.5" />
-    <PackageReference Include="Microsoft.Azure.Functions.Worker.Extensions.Http.AspNetCore" Version="2.0.0" />
-    <PackageReference Include="Microsoft.Azure.Functions.Worker.Extensions.Mcp" Version="1.2.0-preview.1" />
-    <PackageReference Include="Azure.AI.OpenAI" Version="2.1.0" />
-    <PackageReference Include="Microsoft.Azure.Cosmos" Version="3.46.0" />
-    <PackageReference Include="Azure.Search.Documents" Version="11.7.0" />
-    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
-    <PackageReference Include="Microsoft.Azure.Functions.Worker.Extensions.SignalRService" Version="2.0.1" />
-    <PackageReference Include="Microsoft.Azure.Functions.Worker.Extensions.CosmosDB" Version="4.11.0" />
-    <PackageReference Include="Azure.Monitor.Query" Version="1.5.0" />
-    <PackageReference Include="Azure.Identity" Version="1.13.2" />
-  </ItemGroup>
+    <!-- Official MCP C# SDK (Anthropic + Microsoft). Handles the
+         JSON-RPC 2.0 transport, Streamable HTTP at /, SSE fallback
+         at /sse + /message, tool reflection from
+         [McpServerToolType]/[McpServerTool], JSON Schema generation,
+         and the initialize / tools-list / tools-call dispatch. The
+         AspNetCore package brings the routing extension that lets
+         us write `app.MapMcp()`. -->
+    <PackageReference Include="ModelContextProtocol.AspNetCore" Version="0.6.0-preview.1" />
 
-  <ItemGroup>
-    <None Update="host.json">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="local.settings.json">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <CopyToPublishDirectory>Never</CopyToPublishDirectory>
-    </None>
+    <!-- Azure OpenAI — the one remaining cloud dependency. -->
+    <PackageReference Include="Azure.AI.OpenAI" Version="2.1.0" />
+
+    <!-- Postgres + pgvector. Replaces Microsoft.Azure.Cosmos and
+         Azure.Search.Documents in one stroke. `Pgvector` brings the
+         `Vector` type + Npgsql type mapping. -->
+    <PackageReference Include="Npgsql" Version="9.0.2" />
+    <PackageReference Include="Pgvector" Version="0.3.0" />
+
+    <!-- Observability — OTLP to the SigNoz stack on the same colo box.
+         Core packages pinned to 1.15.3 (the patched build for
+         CVE-2026-40894 + GHSA-4625-4j76-fww9 — see
+         https://github.com/advisories/GHSA-g94r-2vxg-569j). The
+         contrib instrumentation packages ship slightly behind — track
+         the latest available there. -->
+    <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.15.3" />
+    <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.15.3" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.15.1" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.Http" Version="1.15.1" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.Runtime" Version="1.15.1" />
+
+    <!-- JSON. We standardise on System.Text.Json now that Cosmos
+         (which forced Newtonsoft for dynamic JObject results) is
+         gone. Newtonsoft kept temporarily for any remaining call
+         site; can be removed once those are audited. -->
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
   </ItemGroup>
 
 </Project>

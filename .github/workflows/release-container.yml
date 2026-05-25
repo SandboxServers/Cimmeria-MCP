@@ -1,0 +1,222 @@
+name: release-container
+
+# Build and publish the cimmeria-mcp container image to GHCR. The
+# image is consumed by the colo Docker compose at
+# `docker/compose.yml`, which pulls
+# `ghcr.io/sandboxservers/cimmeria-mcp:latest-prerelease`.
+#
+# Triggers:
+#   1. Comment `/release` on a merged PR (release-on-comment dispatcher,
+#      to be added when the comment-trigger pattern is in place — same
+#      shape as the SandboxServers/Cimmeria repo).
+#   2. Manual `workflow_dispatch` from the Actions UI or via `gh`.
+#
+# The workflow builds whatever is at `main` HEAD. The optional
+# `triggering_pr` input is audit metadata only — it links the release
+# back to the PR whose comment kicked it off.
+#
+# Image is tagged twice:
+#   - `<YYYY-MM-DD.N>` — immutable, dated. N is the 1-based release
+#     count for that UTC calendar day.
+#   - `latest-prerelease` — rolling pointer the colo watchtower polls.
+#     Only promoted after the smoke check passes.
+
+on:
+  workflow_dispatch:
+    inputs:
+      triggering_pr:
+        description: 'Optional PR number that prompted this release (audit-only)'
+        required: false
+        type: string
+
+# Top-level: deny everything. Each job opts into the minimum it needs.
+permissions: {}
+
+# Serialise builds rather than cancelling them — a release that's
+# building must finish before the next one starts, otherwise a fast
+# follow-up dispatch would overlap with the dated-tag computation.
+concurrency:
+  group: release-container
+  cancel-in-progress: false
+
+jobs:
+  build-and-publish:
+    name: build, push, smoke
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read      # checkout
+      packages: write     # push to ghcr.io
+      attestations: write # buildx provenance + SBOM attestations
+      id-token: write     # OIDC token for keyless provenance signing
+    timeout-minutes: 30
+
+    steps:
+      # Refuse to publish from anywhere other than main. workflow_dispatch
+      # accepts an arbitrary `--ref`, so without this guard a typo'd
+      # `gh workflow run --ref my-feature-branch` would push that branch's
+      # code as a release.
+      - name: reject non-main dispatches
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo "::error::release-container must be dispatched from main; got ${{ github.ref }}"
+          exit 1
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # No subsequent step pushes via git — we publish via docker
+          # push only. Drop the git token from the on-disk config to
+          # shrink the secret surface.
+          persist-credentials: false
+
+      - uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+
+      - uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: lowercase image owner
+        id: img
+        run: |
+          owner_lc=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          echo "image=ghcr.io/${owner_lc}/cimmeria-mcp" >> "$GITHUB_OUTPUT"
+
+      - name: compute version (YYYY-MM-DD.N)
+        id: ver
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IMAGE: ${{ steps.img.outputs.image }}
+        run: |
+          set -euo pipefail
+          DATE=$(date -u +%Y-%m-%d)
+          CREATED=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+          # Probe GHCR for existing dated tags so we don't clobber.
+          # `docker manifest inspect` returns 0 if the tag exists.
+          N=1
+          while docker manifest inspect "${IMAGE}:${DATE}.${N}" >/dev/null 2>&1; do
+              N=$((N + 1))
+          done
+
+          echo "version=${DATE}.${N}"  >> "$GITHUB_OUTPUT"
+          echo "tag=v${DATE}.${N}"     >> "$GITHUB_OUTPUT"
+          echo "date=${DATE}"          >> "$GITHUB_OUTPUT"
+          echo "created=${CREATED}"    >> "$GITHUB_OUTPUT"
+
+      # Two-pass build: load-for-scan first, then push-with-attestations.
+      # buildx's `load: true` (Docker daemon export) is incompatible
+      # with `provenance: true` — the docker exporter can't carry
+      # attestations. The second build hits the buildx cache and
+      # effectively just attaches attestations + pushes; no recompile.
+      - name: build (load locally for scan)
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
+        with:
+          context: .
+          file: docker/Dockerfile
+          push: false
+          load: true
+          tags: ${{ steps.img.outputs.image }}:${{ steps.ver.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: false
+          sbom: false
+
+      - name: scan with Trivy
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ steps.img.outputs.image }}:${{ steps.ver.outputs.version }}
+          format: table
+          exit-code: '1'
+          severity: CRITICAL
+          ignore-unfixed: true
+          vuln-type: os,library
+
+      # Push the dated tag only. `latest-prerelease` is promoted AFTER
+      # the smoke step so a smoke failure can't leave the rolling
+      # pointer aimed at a broken image. The dated tag is immutable
+      # and the version step's manifest-inspect loop naturally bumps
+      # past any orphan, so leaving a failed dated tag in place is
+      # fine — `latest-prerelease` is the only consumer-facing pointer
+      # we have to protect.
+      - name: push dated tag (with provenance + SBOM)
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
+        with:
+          context: .
+          file: docker/Dockerfile
+          push: true
+          tags: |
+            ${{ steps.img.outputs.image }}:${{ steps.ver.outputs.version }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ steps.ver.outputs.version }}
+            org.opencontainers.image.created=${{ steps.ver.outputs.created }}
+          cache-from: type=gha
+          provenance: true
+          sbom: true
+
+      # Smoke: pull the just-pushed image, start it with stub env
+      # vars, and verify the /health endpoint responds 200. The
+      # container needs DATABASE_URL set to something — but the
+      # endpoint we hit (/health, anonymous) doesn't touch Postgres,
+      # so a syntactically valid but non-routable URL is enough.
+      # /ready WOULD need Postgres; we deliberately don't smoke it.
+      - name: smoke (start image, hit /health)
+        env:
+          IMAGE: ${{ steps.img.outputs.image }}:${{ steps.ver.outputs.version }}
+        run: |
+          set -euo pipefail
+          docker run -d --name cimmeria-mcp-smoke \
+            -e DATABASE_URL="Host=unreachable.invalid;Port=5432;Database=x;Username=x;Password=x" \
+            -e OPENAI_ENDPOINT="https://example.invalid" \
+            -e OPENAI_KEY="smoke" \
+            -e MCP_API_KEY="smoke" \
+            -p 18080:8080 \
+            "$IMAGE"
+
+          # Wait for the app to come up. Kestrel cold-start ~3-5s.
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:18080/health > /dev/null; then
+              echo "smoke OK after ${i}s"
+              docker logs cimmeria-mcp-smoke | tail -20
+              docker rm -f cimmeria-mcp-smoke
+              exit 0
+            fi
+            sleep 1
+          done
+
+          echo "::error::cimmeria-mcp did not respond on /health within 30s"
+          docker logs cimmeria-mcp-smoke
+          docker rm -f cimmeria-mcp-smoke
+          exit 1
+
+      # Smoke passed — promote `latest-prerelease` to this dated tag.
+      # Watchtower on the colo polls this every 5 min and pulls the new
+      # image automatically.
+      - name: promote latest-prerelease
+        env:
+          IMAGE: ${{ steps.img.outputs.image }}
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -euo pipefail
+          docker buildx imagetools create \
+            -t "${IMAGE}:latest-prerelease" \
+            "${IMAGE}:${VERSION}"
+
+      - name: print release summary
+        env:
+          IMAGE: ${{ steps.img.outputs.image }}
+          VERSION: ${{ steps.ver.outputs.version }}
+          PR: ${{ inputs.triggering_pr }}
+        run: |
+          {
+            echo "## cimmeria-mcp release"
+            echo ""
+            echo "- **Dated tag:** \`${IMAGE}:${VERSION}\`"
+            echo "- **Rolling tag:** \`${IMAGE}:latest-prerelease\`"
+            echo "- **Commit:** ${{ github.sha }}"
+            if [ -n "${PR:-}" ]; then
+              echo "- **Triggering PR:** #${PR}"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
