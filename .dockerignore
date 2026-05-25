@@ -1,0 +1,53 @@
+# Keep the docker build context small. Everything below is either
+# generated, environment-specific, or non-runtime metadata that the
+# build stage never reads.
+
+# .NET build artifacts
+**/bin/
+**/obj/
+**/publish/
+*.user
+*.suo
+
+# Test project — the Dockerfile only restores it for csproj caching
+# purposes; the actual runtime image doesn't need test sources.
+# Comment out if you want the test build to run inside Docker.
+src/CimmeriaMcp.Functions.Tests/
+
+# IDE state
+.vs/
+.vscode/
+.idea/
+*.swp
+
+# Secrets & local-only config (these are in .gitignore too)
+**/local.settings.json
+**/appsettings.Development.json
+**/.env
+.mcp.json
+
+# CI / infra / docs — none of it is needed inside the image
+.github/
+pipelines/
+infra/
+docs/
+site/
+README.md
+CLAUDE.md
+*.md
+LICENSE
+
+# Git metadata
+.git/
+.gitignore
+.gitattributes
+
+# Scratch directories
+.scratch/
+.claude/
+
+# Docker artifacts (avoid recursive includes)
+docker/postgres-init/
+docker/.env
+docker/.env.example
+deploy.zip

@@ -8,7 +8,7 @@ Cimmeria MCP Server — a C# Azure Function App providing AI-powered codebase in
 
 Uses the **Azure Functions MCP Extension** (`Microsoft.Azure.Functions.Worker.Extensions.Mcp`) — transport, auth, and MCP protocol are handled by the Functions runtime at `/runtime/webhooks/mcp`. Auth uses a system key.
 
-> **Migration in progress** — a colo self-host deployment is being staged in [`docker/`](docker/) and documented in [`docs/colo-deployment.md`](docs/colo-deployment.md). Target topology: ASP.NET Core MCP-over-HTTP + Postgres+pgvector + in-process SignalR Hub + SigNoz/OTLP, with Azure OpenAI as the only remaining cloud dependency. The compose artifacts are committed first; the C# refactor (Functions → ASP.NET, Cosmos → Postgres, AI Search → pgvector) lands in follow-up PRs against that env-var contract.
+> **Colo self-host migration** — the colo deployment lives in [`docker/`](docker/), documented in [`docs/colo-deployment.md`](docs/colo-deployment.md). Plain ASP.NET Core + the official `ModelContextProtocol.AspNetCore` SDK, Postgres+pgvector replacing Cosmos + AI Search, in-process SignalR Hub, OTLP to the SigNoz stack running on the same colo box. Azure OpenAI is the only remaining cloud dependency. Container image is published to `ghcr.io/sandboxservers/cimmeria-mcp` by [`.github/workflows/release-container.yml`](.github/workflows/release-container.yml); the colo compose pulls `:latest-prerelease`. The 6 search + 14 graph tools are fully ported against Postgres; the 14 AI skills are stubbed with `port_pending` envelopes pending a follow-up prompt-engineering PR (see [`Services/CimmeriaSummarizationService.cs`](src/CimmeriaMcp.Functions/Services/CimmeriaSummarizationService.cs) class doc).
 
 ## Build Commands
 

@@ -1,63 +1,56 @@
 # Cimmeria-MCP container — multi-stage .NET 10 build.
 #
-# Status: SPECULATIVE. The current `src/CimmeriaMcp.Functions/`
-# project targets the Azure Functions runtime and will not build
-# against this Dockerfile until the migration in
-# `docs/colo-deployment.md` lands. Tracked there as Step 1
-# (Functions → plain ASP.NET Core MCP host).
+# Produces an ASP.NET Core MCP server image suitable for the colo
+# Docker compose. The image hosts the official `ModelContextProtocol.AspNetCore`
+# SDK on Kestrel, listening on port 8080. Companion services
+# (Postgres + pgvector) are defined alongside in
+# [docker/compose.yml](./compose.yml).
 #
-# The Dockerfile is committed first so the deployment surface and
-# CI pipeline can be locked in before the C# refactor; pushing a
-# working image is gated on that refactor.
+# # Image layout
+#
+#   /app/CimmeriaMcp.dll        — the published binary
+#   /app/...                    — supporting assemblies + runtime config
+#
+# The project folder on disk is `src/CimmeriaMcp.Functions/` (the
+# `Functions` suffix is preserved for git history; the Azure
+# Functions deps inside it are gone). The csproj sets
+# `AssemblyName=CimmeriaMcp` so the published binary matches the
+# entrypoint below.
 
 # ── Build stage ────────────────────────────────────────────────────
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
-# Restore first, with only csproj files copied, so package restore
-# is cached across most edits. The refactored project name is
-# expected to be `CimmeriaMcp` (no `.Functions` suffix once the
-# Azure-Functions host is gone); both paths handled below so the
-# Dockerfile keeps working through the rename.
-COPY src/CimmeriaMcp/*.csproj ./CimmeriaMcp/ 2>/dev/null || true
-COPY src/CimmeriaMcp.Functions/*.csproj ./CimmeriaMcp.Functions/ 2>/dev/null || true
-RUN if [ -d CimmeriaMcp ]; then \
-        dotnet restore CimmeriaMcp/CimmeriaMcp.csproj; \
-    else \
-        dotnet restore CimmeriaMcp.Functions/CimmeriaMcp.Functions.csproj; \
-    fi
+# Restore first, with only csproj files copied, so package restore is
+# cached across most edits.
+COPY src/CimmeriaMcp.Functions/CimmeriaMcp.Functions.csproj ./CimmeriaMcp.Functions/
+COPY src/CimmeriaMcp.Functions.Tests/CimmeriaMcp.Functions.Tests.csproj ./CimmeriaMcp.Functions.Tests/
+RUN dotnet restore CimmeriaMcp.Functions/CimmeriaMcp.Functions.csproj
 
-# Now copy the rest of the source and build a self-contained binary
-# in Release mode. `PublishTrimmed=false` because trimming + reflection
-# in ASP.NET routing / DI is a hazard area; revisit only if image
-# size becomes a real problem.
-COPY src/ ./
-RUN if [ -d CimmeriaMcp ]; then \
-        dotnet publish CimmeriaMcp/CimmeriaMcp.csproj \
-            -c Release -o /app \
-            --no-restore \
-            -p:PublishTrimmed=false; \
-    else \
-        dotnet publish CimmeriaMcp.Functions/CimmeriaMcp.Functions.csproj \
-            -c Release -o /app \
-            --no-restore \
-            -p:PublishTrimmed=false; \
-    fi
+# Now copy the rest of the source and publish a self-contained
+# binary in Release mode. PublishTrimmed=false because trimming +
+# reflection (ASP.NET routing / DI / the MCP SDK's tool discovery)
+# is a known hazard area.
+COPY src/CimmeriaMcp.Functions ./CimmeriaMcp.Functions
+RUN dotnet publish CimmeriaMcp.Functions/CimmeriaMcp.Functions.csproj \
+    -c Release -o /app \
+    --no-restore \
+    -p:PublishTrimmed=false
 
 # ── Runtime stage ──────────────────────────────────────────────────
-# ASP.NET base image, NOT the Azure Functions image — the whole point
-# of this migration is to drop the Functions runtime. The MCP-over-HTTP
-# server runs as a plain Kestrel app.
+# ASP.NET base image (not the Azure Functions image — we're not a
+# Functions app anymore). The MCP-over-HTTP server runs as plain
+# Kestrel inside this container.
 FROM mcr.microsoft.com/dotnet/aspnet:10.0
 WORKDIR /app
 
-# Curl for the healthcheck (`/health` endpoint exposed by the app).
-# The aspnet base image is debian-slim; curl is a one-line install.
+# curl for the compose healthcheck (`GET /health`). The aspnet base
+# image is debian-slim; the install is a few hundred kilobytes.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Non-root user for the runtime — defence in depth. ASP.NET binds to
+# Non-root user for the runtime — defence in depth. Kestrel binds to
 # port 8080 (>1024) so no CAP_NET_BIND_SERVICE is needed.
 RUN groupadd -r mcp && useradd -r -g mcp -d /app -s /sbin/nologin mcp
 COPY --from=build --chown=mcp:mcp /app .
@@ -66,9 +59,10 @@ USER mcp
 ENV ASPNETCORE_URLS=http://0.0.0.0:8080
 EXPOSE 8080
 
-# The entrypoint binary name will match the project rename. Defaults
-# to the current `.Functions.dll` if the rename hasn't happened yet
-# (in which case the binary won't actually serve MCP correctly, but
-# the container starts and surfaces a clear error in its logs rather
-# than failing silently at `docker run`).
-ENTRYPOINT ["sh", "-c", "if [ -f CimmeriaMcp.dll ]; then exec dotnet CimmeriaMcp.dll; else exec dotnet CimmeriaMcp.Functions.dll; fi"]
+# Image-level healthcheck. compose.yml has its own healthcheck too;
+# the docker daemon's check helps `docker ps` and any orchestrator
+# that reads HEALTHCHECK without parsing the compose file.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD curl -fsS http://localhost:8080/health || exit 1
+
+ENTRYPOINT ["dotnet", "CimmeriaMcp.dll"]
